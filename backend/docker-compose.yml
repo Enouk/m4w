@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: m4w_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_HOST: db
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: m4w_dev
+    ports:
+      - "4000:4000"
+    volumes:
+      # Bind-mount the source so edits on the host are picked up by Phoenix's
+      # code reloader without rebuilding the image.
+      - .:/app
+      # Named volumes for build artifacts and caches, so they don't get
+      # shadowed by (or pollute) the host bind mount above, and survive
+      # `docker compose down` / restarts.
+      - app_deps:/app/deps
+      - app_build:/app/_build
+      - app_mix:/root/.mix
+      - app_hex:/root/.hex
+
+volumes:
+  app_deps:
+  app_build:
+  app_mix:
+  app_hex:

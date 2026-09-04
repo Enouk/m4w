@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mix compile *)",
+      "Bash(mix deps.get)",
+      "Bash(curl -s -o /dev/null -w \"GET /test -> %{http_code}\\\\n\" http://127.0.0.1:4000/test)",
+      "Bash(curl -s -o /dev/null -w \"GET /test/app.jsx -> %{http_code}\\\\n\" http://127.0.0.1:4000/test/app.jsx)",
+      "Bash(curl -s -o /dev/null -w \"GET /test/spaces-data.js -> %{http_code}\\\\n\" http://127.0.0.1:4000/test/spaces-data.js)",
+      "Bash(curl -s -o /dev/null -w \"GET /test/app-styles.css -> %{http_code}\\\\n\" http://127.0.0.1:4000/test/app-styles.css)",
+      "Bash(curl -s http://127.0.0.1:4000/test)",
+      "Bash(pkill -f \"mix phx.server\")",
+      "Bash(pkill -f \"beam.*m4w\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://127.0.0.1:4000/test)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 2 http://127.0.0.1:4000/test)",
+      "Bash(sleep 5; cat /tmp/phx_server2.log; echo \"---\"; curl -s -o /dev/null -w \"GET /test -> %{http_code}\\\\n\" http://127.0.0.1:4000/test)",
+      "Bash(docker compose *)",
+      "Bash(netstat -ltnp)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://127.0.0.1:4000/test/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://127.0.0.1:4000/TEST)",
+      "Bash(curl -sD - -o /dev/null http://127.0.0.1:4000/test)",
+      "Bash(curl -s \"https://hub.docker.com/v2/repositories/hexpm/elixir/tags?page_size=100&name=1.19.5-erlang-28.1\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -o /dev/null -w \"GET /test -> %{http_code}\\\\n\" http://127.0.0.1:4000/test/)",
+      "Bash(curl -s -o /dev/null -w \"GET /test/process-map.jsx -> %{http_code}\\\\n\" http://127.0.0.1:4000/test/process-map.jsx)",
+      "Bash(curl -s -o /dev/null -w \"GET /test/ -> %{http_code}\\\\n\" http://127.0.0.1:4000/test/)",
+      "Bash(curl -s -o /dev/null -w \"GET / \\(BuilderLive\\) -> %{http_code}\\\\n\" http://127.0.0.1:4000/)"
+    ]
+  }
+}
