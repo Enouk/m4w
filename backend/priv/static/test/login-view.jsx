@@ -1,23 +1,35 @@
-// Login screen: a real-looking email/password form (matches one of the demo
-// users by email, any password accepted) plus one-click testanvändare cards
-// for quickly switching between the three account types.
+// Login screen: a real email/password form against POST /auth/login, plus
+// one-click testanvändare cards for quickly switching between the three demo
+// accounts seeded in the backend (any password is accepted for them).
+
+const DEMO_USERS = [
+  { email: "karin.lindqvist@acme.se", name: "Karin Lindqvist", initials: "KL", role: "Styrelseordförande", org: "Acme AB" },
+  { email: "marcus@acme.se", name: "Marcus Nilsson", initials: "MN", role: "Ekonomiansvarig · CFO", org: "Acme AB" },
+  { email: "sara@ahlenkonsult.se", name: "Sara Ahlén", initials: "SA", role: "Enskild firma", org: null }
+];
 
 const LoginView = ({ onLogin }) => {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
 
-  const users = Object.values(window.USERS);
+  const attemptLogin = (loginEmail) => {
+    setSubmitting(true);
+    setError("");
+    onLogin(loginEmail, password).catch((err) => {
+      setError(err.message || "Kunde inte logga in.");
+      setSubmitting(false);
+    });
+  };
 
   const submit = (e) => {
     e.preventDefault();
-    const match = users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-    if (!match) {
-      setError("Okänd e-postadress — välj en testanvändare nedan.");
+    if (!email.trim()) {
+      setError("Ange en e-postadress.");
       return;
     }
-    setError("");
-    onLogin(match.id);
+    attemptLogin(email.trim());
   };
 
   return (
@@ -54,8 +66,8 @@ const LoginView = ({ onLogin }) => {
             />
           </label>
           {error && <div className="login-error">{error}</div>}
-          <button type="submit" className="btn btn--accent login-submit">
-            Logga in
+          <button type="submit" className="btn btn--accent login-submit" disabled={submitting}>
+            {submitting ? "Loggar in…" : "Logga in"}
           </button>
         </form>
 
@@ -64,9 +76,14 @@ const LoginView = ({ onLogin }) => {
         </div>
 
         <ul className="login-users">
-          {users.map((u) => (
-            <li key={u.id}>
-              <button type="button" className="login-user" onClick={() => onLogin(u.id)}>
+          {DEMO_USERS.map((u) => (
+            <li key={u.email}>
+              <button
+                type="button"
+                className="login-user"
+                disabled={submitting}
+                onClick={() => attemptLogin(u.email)}
+              >
                 <span className="login-user-avatar">{u.initials}</span>
                 <span className="login-user-meta">
                   <span className="login-user-name">{u.name}</span>

@@ -4,14 +4,12 @@
 // the artifact you'd hand an ISO/compliance auditor to show the flow is
 // documented and traceable, not tribal knowledge.
 
-const ENTITY_KIND_LABEL = { ai: "AI", human: "Människa", mixed: "AI + människa" };
-
 const ProcessStep = ({ room, isLast, onOpen }) => (
   <React.Fragment>
     <button type="button" className="procmap-step" onClick={onOpen}>
       <div className="procmap-step-top">
         <span className="procmap-step-name">{room.name}</span>
-        <span className="procmap-step-count">{room.items.length}</span>
+        <span className="procmap-step-count">{room.itemCount}</span>
       </div>
       <EntityTag entity={room.entity} />
       <div className="procmap-step-subgoal">{room.subgoal}</div>
@@ -70,8 +68,15 @@ const ProcessCard = ({ space, onOpen }) => {
   );
 };
 
-const ProcessesView = ({ spaces, onOpenSpace }) => {
-  const list = Object.values(spaces);
+const ProcessesView = ({ onOpenSpace }) => {
+  const [list, setList] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.processes.list().then(setList);
+  }, []);
+
+  if (list === null) return null;
+
   const allRooms = list.flatMap((sp) => sp.rooms || []);
   const aiRooms = allRooms.filter((r) => r.entity.kind === "ai").length;
   const humanRooms = allRooms.filter((r) => r.entity.kind !== "ai").length;

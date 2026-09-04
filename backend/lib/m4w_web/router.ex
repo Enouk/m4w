@@ -14,6 +14,14 @@ defmodule M4wWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :ops_auth do
+    plug M4wWeb.Plugs.OpsAuth
+  end
+
+  pipeline :ops_space_access do
+    plug M4wWeb.Plugs.OpsSpaceAccess
+  end
+
   scope "/", M4wWeb do
     pipe_through :browser
 
@@ -25,6 +33,85 @@ defmodule M4wWeb.Router do
     pipe_through :api
 
     post "/spaces", RestAPI.SpaceController, :create
+  end
+
+  scope "/api/v1", M4wWeb.Ops do
+    pipe_through :api
+
+    post "/auth/login", AuthController, :login
+  end
+
+  scope "/api/v1", M4wWeb.Ops do
+    pipe_through [:api, :ops_auth]
+
+    post "/auth/logout", AuthController, :logout
+    get "/me", AuthController, :me
+
+    get "/space-categories", SpaceCategoryController, :index
+
+    get "/spaces", SpaceController, :index
+    post "/spaces", SpaceController, :create
+
+    post "/inbound-mail", MailController, :inbound
+    get "/mail/:mailId", MailController, :show
+
+    get "/items/:itemId", ItemController, :show
+    patch "/items/:itemId", ItemController, :update
+
+    get "/artifacts/:artifactId", ArtifactController, :show
+
+    get "/meetings/:meetingId", MeetingController, :show
+
+    get "/inbox", GlobalInboxController, :index
+    get "/unclassified", GlobalInboxController, :unclassified
+    post "/unclassified/:mailId/assign", GlobalInboxController, :assign
+
+    get "/contacts", ContactController, :global_index
+
+    get "/processes", ProcessController, :index
+
+    scope "/spaces/:spaceId" do
+      pipe_through :ops_space_access
+
+      get "/", SpaceController, :show
+      patch "/", SpaceController, :update
+      delete "/", SpaceController, :delete
+
+      get "/context-mails", ContextMailController, :index
+      patch "/context-mails/:mailId", ContextMailController, :update
+
+      post "/generate", SpaceController, :generate
+
+      get "/rooms", RoomController, :index
+      post "/rooms", RoomController, :create
+      patch "/rooms/:roomId", RoomController, :update
+      delete "/rooms/:roomId", RoomController, :delete
+
+      get "/rooms/:roomId/items", ItemController, :index
+
+      get "/passages", PassageController, :index
+      post "/passages", PassageController, :create
+
+      get "/artifacts", ArtifactController, :index
+
+      get "/inbox", MailController, :space_inbox
+
+      get "/replay-batch", ReplayController, :batch
+      post "/replay", ReplayController, :run
+
+      get "/outbox", OutboxController, :index
+      post "/outbox/:messageId/approve", OutboxController, :approve
+      patch "/outbox/:messageId", OutboxController, :update
+      delete "/outbox/:messageId", OutboxController, :cancel
+
+      get "/contacts", ContactController, :index
+
+      get "/meetings", MeetingController, :index
+      get "/decisions", DecisionController, :index
+
+      get "/compliance", ComplianceController, :index
+      get "/verifications", VerificationController, :index
+    end
   end
 
   scope "/", M4wWeb do

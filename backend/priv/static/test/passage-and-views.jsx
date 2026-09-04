@@ -1,24 +1,19 @@
-// Right panel: passage log + the unclassified-mails view and the expanded item card.
+// Right panel: the unclassified-mails view and the expanded item/mail cards.
 
-const PassageLog = ({ space }) => (
-  <aside className="passage-log">
-    <div className="passage-head">
-      <div className="passage-title">Passages</div>
-      <div className="passage-sub">{space.name} · senaste först</div>
-    </div>
-    <ul className="passage-list">
-      {space.passages.map((p, i) => (
-        <li key={i} className="passage-row">
-          <span className="passage-time">{p.time}</span>
-          <span className="passage-sep" aria-hidden="true">·</span>
-          <span className="passage-text">{p.text}</span>
-        </li>
-      ))}
-    </ul>
-  </aside>
-);
+const ClassifyView = ({ spaces, onCountsChanged }) => {
+  const [items, setItems] = React.useState(null);
 
-const ClassifyView = ({ items, spaces, onAssign }) => {
+  const load = () => window.API.unclassified.list().then(setItems);
+  React.useEffect(() => { load(); }, []);
+
+  if (items === null) return null;
+
+  const assign = (mailId, spaceId) =>
+    window.API.unclassified.assign(mailId, spaceId).then(() => {
+      load();
+      onCountsChanged();
+    });
+
   return (
     <div className="classify-view">
       <div className="classify-head">
@@ -29,13 +24,13 @@ const ClassifyView = ({ items, spaces, onAssign }) => {
         </div>
       </div>
       <ul className="classify-list">
-        {items.map((m, i) => (
-          <li key={i} className="classify-row">
+        {items.map((m) => (
+          <li key={m.id} className="classify-row">
             <div className="classify-row-main">
               <div className="classify-from">{m.from}</div>
               <div className="classify-subject">{m.subject}</div>
               <div className="classify-meta">
-                <span>{m.date}</span>
+                <span>{window.formatDateTime(m.date)}</span>
                 <span className="dot-sep">·</span>
                 <span className="classify-reason">{m.reason}</span>
               </div>
@@ -43,12 +38,12 @@ const ClassifyView = ({ items, spaces, onAssign }) => {
             <div className="classify-actions">
               <div className="classify-actions-label">Tilldela till</div>
               <div className="classify-buttons">
-                {Object.values(spaces).map((sp) => (
+                {spaces.map((sp) => (
                   <button
                     key={sp.id}
                     type="button"
                     className="btn btn--small btn--ghost"
-                    onClick={() => onAssign(i, sp.id)}
+                    onClick={() => assign(m.id, sp.id)}
                   >
                     {sp.name}
                   </button>
@@ -56,7 +51,7 @@ const ClassifyView = ({ items, spaces, onAssign }) => {
                 <button
                   type="button"
                   className="btn btn--small btn--muted"
-                  onClick={() => onAssign(i, null)}
+                  onClick={() => assign(m.id, null)}
                 >
                   Ingen process
                 </button>
@@ -72,15 +67,26 @@ const ClassifyView = ({ items, spaces, onAssign }) => {
   );
 };
 
-const ItemModal = ({ open, onClose, space }) => {
+const ItemModal = ({ open, onClose }) => {
+  const [detail, setDetail] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!open) {
+      setDetail(null);
+      return;
+    }
+    window.API.items.get(open.item.id).then(setDetail);
+  }, [open && open.item.id]);
+
   if (!open) return null;
-  const { room, item } = open;
+  const { room, item, spaceName } = open;
+
   return (
     <div className="modal-scrim" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div className="modal-breadcrumb">
-            <span>{space.name}</span>
+            <span>{spaceName}</span>
             <span className="dot-sep">·</span>
             <span>{room.name}</span>
           </div>
@@ -95,31 +101,48 @@ const ItemModal = ({ open, onClose, space }) => {
           <span>{item.meta}</span>
         </div>
 
-        <div className="modal-section-label">Originalmail</div>
-        <div className="modal-mail">
-          <div className="modal-mail-head">
-            <div><span className="modal-mail-key">Från</span> Karin Lindqvist &lt;karin.lindqvist@acme.se&gt;</div>
-            <div><span className="modal-mail-key">Till</span> {space.address}</div>
-            <div><span className="modal-mail-key">Datum</span> Idag 14:32</div>
-            <div><span className="modal-mail-key">Ämne</span> {item.title}</div>
-          </div>
-          <div className="modal-mail-body">
-            <p>Hej,</p>
-            <p>
-              Här kommer underlaget inför nästa station i flödet. AI:n har redan parsat de
-              relevanta fälten och knutit ärendet till rätt nyckelvillkor — kolla gärna att
-              tolkningen ser rimlig ut innan ni går vidare.
-            </p>
-            <p>Vänliga hälsningar,<br/>Karin</p>
-          </div>
-        </div>
+        {!detail ? (
+          <div className="modal-section-label">Laddar…</div>
+        ) : (
+          <React.Fragment>
+            {detail.sourceMail ? (
+              <React.Fragment>
+                <div className="modal-section-label">Originalmail</div>
+                <div className="modal-mail">
+                  <div className="modal-mail-head">
+                    <div>
+                      <span className="modal-mail-key">Från</span> {detail.sourceMail.from}
+                      {detail.sourceMail.fromEmail ? ` <${detail.sourceMail.fromEmail}>` : ""}
+                    </div>
+                    <div><span className="modal-mail-key">Datum</span> {window.formatDateTime(detail.sourceMail.date)}</div>
+                    <div><span className="modal-mail-key">Ämne</span> {detail.sourceMail.subject}</div>
+                  </div>
+                  <div className="modal-mail-body">
+                    {(detail.sourceMail.body || []).map((p, i) => (
+                      <p key={i}>{p}</p>
+                    ))}
+                  </div>
+                </div>
+              </React.Fragment>
+            ) : (
+              <div className="context-empty">Inget källmail kopplat till detta ärende.</div>
+            )}
 
-        <div className="modal-section-label">Passages för detta ärende</div>
-        <ul className="modal-passages">
-          <li><span className="passage-time">10:04</span><span className="passage-sep">·</span><span>routat till {room.name}</span></li>
-          <li><span className="passage-time">10:06</span><span className="passage-sep">·</span><span>nyckelvillkor utvärderat</span></li>
-          <li><span className="passage-time">14:32</span><span className="passage-sep">·</span><span>status uppdaterad — {item.meta}</span></li>
-        </ul>
+            <div className="modal-section-label">Passages för detta ärende</div>
+            <ul className="modal-passages">
+              {detail.passages.map((p) => (
+                <li key={p.id}>
+                  <span className="passage-time">{window.formatTime(p.timestamp)}</span>
+                  <span className="passage-sep">·</span>
+                  <span>{p.text}</span>
+                </li>
+              ))}
+              {detail.passages.length === 0 && (
+                <li>Inga passages loggade för detta ärende ännu.</li>
+              )}
+            </ul>
+          </React.Fragment>
+        )}
       </div>
     </div>
   );
@@ -134,12 +157,6 @@ const MailModal = ({ open, onClose, onJump }) => {
         <div className="modal-head">
           <div className="modal-breadcrumb">
             <span>{spaceName || "Att klassificera"}</span>
-            {mail.room && (
-              <React.Fragment>
-                <span className="dot-sep">·</span>
-                <span>{mail.room}</span>
-              </React.Fragment>
-            )}
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Stäng">
             ×
@@ -147,8 +164,8 @@ const MailModal = ({ open, onClose, onJump }) => {
         </div>
         <div className="modal-title">{mail.subject}</div>
         <div className="modal-meta">
-          {mail.room ? (
-            <span className="inbox-room-tag" data-confidence={mail.confidence}>{mail.room}</span>
+          {spaceId ? (
+            <span className="inbox-room-tag" data-confidence={mail.confidence}>{mail.status}</span>
           ) : (
             <span className="classify-reason">{mail.reason}</span>
           )}
@@ -168,7 +185,7 @@ const MailModal = ({ open, onClose, onJump }) => {
               <span className="modal-mail-key">Till</span>{" "}
               {spaceAddress || "ej routat till en Space-adress"}
             </div>
-            <div><span className="modal-mail-key">Datum</span> {mail.date}</div>
+            <div><span className="modal-mail-key">Datum</span> {window.formatDateTime(mail.date)}</div>
             <div><span className="modal-mail-key">Ämne</span> {mail.subject}</div>
           </div>
           <div className="modal-mail-body">
@@ -195,4 +212,4 @@ const MailModal = ({ open, onClose, onJump }) => {
   );
 };
 
-Object.assign(window, { PassageLog, ClassifyView, ItemModal, MailModal });
+Object.assign(window, { ClassifyView, ItemModal, MailModal });

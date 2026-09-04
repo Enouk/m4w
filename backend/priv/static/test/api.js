@@ -1,347 +1,177 @@
-// api.js — async facade in front of the *-data.js in-memory stores.
+// api.js — thin fetch() wrapper around the real Phoenix REST API described in
+// API-SPEC.md. Every method here mirrors one endpoint 1:1 (same name, same
+// shape) so call sites in the views stay simple: `window.API.<group>.<method>(...)`.
 //
-// Every method here mirrors one endpoint in API-SPEC.md 1:1 (same name,
-// same shape). Views should call window.API.* instead of touching
-// window.SPACES / window.USERS directly. Swapping the bodies below for
-// real fetch() calls is the only change needed to move from prototype to
-// a real backend — call sites don't change.
-//
-// All methods return Promises (via `wire`) so call sites already look like
-// they're talking to a network API.
+// Auth: the bearer token returned by `auth.login` is kept in localStorage and
+// attached to every subsequent request automatically.
 
 (function () {
-  const LATENCY = 0; // bump this during dev to rehearse loading states
+  const BASE = "/api/v1";
+  const TOKEN_KEY = "m4w_token";
 
-  const wire = (fn) =>
-    new Promise((resolve, reject) => {
-      setTimeout(() => {
-        try {
-          resolve(fn());
-        } catch (err) {
-          reject(err);
-        }
-      }, LATENCY);
+  const getToken = () => localStorage.getItem(TOKEN_KEY);
+  const setToken = (token) => localStorage.setItem(TOKEN_KEY, token);
+  const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
+  const request = async (method, path, body) => {
+    const headers = { "Content-Type": "application/json" };
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(BASE + path, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body)
     });
 
-  const fail = (code, message) => {
-    const err = new Error(message);
-    err.code = code;
-    throw err;
+    if (res.status === 204) return null;
+
+    const json = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const message =
+        (json.error && json.error.message) ||
+        (json.errors && json.errors.detail) ||
+        `Något gick fel (${res.status})`;
+      const err = new Error(message);
+      err.code = json.error && json.error.code;
+      err.status = res.status;
+      throw err;
+    }
+
+    return json;
   };
 
-  const requireSpace = (id) => window.SPACES[id] || fail("not_found", `Space "${id}" finns inte`);
-  const requireRoom = (space, roomId) => {
-    const room = (space.rooms || []).find((r) => r.id === roomId);
-    return room || fail("not_found", `Room "${roomId}" finns inte`);
-  };
-  const slugify = (name) =>
-    name
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "") || "space";
+  const get = (path) => request("GET", path);
+  const post = (path, body) => request("POST", path, body || {});
+  const patch = (path, body) => request("PATCH", path, body || {});
+  const del = (path) => request("DELETE", path);
+
+  const data = (json) => json.data;
 
   // ---------- Auth ----------
   const auth = {
-    login: (userIdOrEmail) =>
-      wire(() => {
-        const user =
-          window.USERS[userIdOrEmail] ||
-          Object.values(window.USERS).find(
-            (u) => u.email.toLowerCase() === String(userIdOrEmail).toLowerCase()
-          );
-        if (!user) fail("not_found", "Okänd användare");
-        localStorage.setItem("m4w_user_id", user.id);
-        return { user };
+    login: (email, password) =>
+      post("/auth/login", { email, password }).then((json) => {
+        setToken(json.token);
+        return json;
       }),
-    logout: () =>
-      wire(() => {
-        localStorage.removeItem("m4w_user_id");
-        return null;
-      })
+    logout: () => post("/auth/logout").finally(clearToken)
   };
 
   // ---------- Me ----------
   const me = {
-    get: () =>
-      wire(() => {
-        const uid = localStorage.getItem("m4w_user_id");
-        return uid ? window.USERS[uid] || null : null;
-      })
+    get: () => (getToken() ? get("/me") : Promise.resolve(null))
   };
 
   // ---------- Space categories ----------
   const spaceCategories = {
-    list: () => wire(() => [...window.SPACE_CATEGORIES])
+    list: () => get("/space-categories")
   };
 
   // ---------- Spaces ----------
   const spaces = {
-    list: (spaceIds) => wire(() => spaceIds.map((id) => window.SPACES[id]).filter(Boolean)),
-    get: (id) => wire(() => requireSpace(id)),
-    create: ({ name, category }) =>
-      wire(() => {
-        const id = "space-" + Date.now();
-        window.SPACES[id] = {
-          id,
-          name,
-          address: slugify(name) + "@m4w.ai",
-          category: category || null,
-          activeCount: 0,
-          goal: "",
-          rooms: [],
-          artifacts: [],
-          passages: [],
-          contextMails: [],
-          contacts: [],
-          inbox: [],
-          outbox: { queued: [], sent: [] }
-        };
-        return window.SPACES[id];
-      }),
-    update: (id, patch) =>
-      wire(() => {
-        const sp = requireSpace(id);
-        Object.assign(sp, patch);
-        return sp;
-      }),
-    delete: (id) =>
-      wire(() => {
-        requireSpace(id);
-        delete window.SPACES[id];
-        return null;
-      }),
-    // POST /spaces/:id/generate — demo stand-in for an AI call: real backend
-    // would read goal + context mails and propose Rooms. Here the seed data
-    // already IS the "generated" pipeline, so we just hand back a copy.
-    generate: (id) =>
-      wire(() => {
-        const sp = requireSpace(id);
-        return (sp.rooms || []).map((r) => ({ ...r }));
-      })
+    list: () => get("/spaces").then(data),
+    get: (id) => get(`/spaces/${id}`).then(data),
+    create: ({ name, category }) => post("/spaces", { name, category }).then(data),
+    update: (id, patchBody) => patch(`/spaces/${id}`, patchBody).then(data),
+    delete: (id) => del(`/spaces/${id}`),
+    generate: (id) => post(`/spaces/${id}/generate`).then((json) => json.rooms)
   };
 
   // ---------- Context mails (design-time) ----------
   const contextMails = {
-    list: (spaceId) => wire(() => requireSpace(spaceId).contextMails || []),
-    update: (spaceId, idx, patch) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        const m = (sp.contextMails || [])[idx];
-        if (!m) fail("not_found", "Context mail finns inte");
-        Object.assign(m, patch);
-        return m;
-      })
+    list: (spaceId) => get(`/spaces/${spaceId}/context-mails`).then(data),
+    update: (spaceId, mailId, patchBody) =>
+      patch(`/spaces/${spaceId}/context-mails/${mailId}`, patchBody).then(data)
   };
 
   // ---------- Rooms ----------
   const rooms = {
-    list: (spaceId) => wire(() => requireSpace(spaceId).rooms || []),
-    create: (spaceId, data) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        const room = { id: "room-" + Date.now(), items: [], ...data };
-        sp.rooms = [...(sp.rooms || []), room];
-        return room;
-      }),
-    update: (spaceId, roomId, patch) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        const room = requireRoom(sp, roomId);
-        Object.assign(room, patch);
-        return room;
-      }),
-    delete: (spaceId, roomId) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        sp.rooms = (sp.rooms || []).filter((r) => r.id !== roomId);
-        return null;
-      }),
-    // Bulk-replace — used when a Design-mode draft (add/remove/reorder Rooms,
-    // edited inline) is committed in one go via "Spara och växla till Kör".
-    replaceAll: (spaceId, roomList) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        sp.rooms = roomList.map((r) => ({ ...r }));
-        return sp.rooms;
-      })
+    list: (spaceId) => get(`/spaces/${spaceId}/rooms`).then(data),
+    create: (spaceId, roomData) => post(`/spaces/${spaceId}/rooms`, roomData).then(data),
+    update: (spaceId, roomId, patchBody) =>
+      patch(`/spaces/${spaceId}/rooms/${roomId}`, patchBody).then(data),
+    delete: (spaceId, roomId) => del(`/spaces/${spaceId}/rooms/${roomId}`)
   };
 
   // ---------- Items ----------
-  const findItem = (itemId) => {
-    for (const sp of Object.values(window.SPACES)) {
-      for (const room of sp.rooms || []) {
-        const it = (room.items || []).find((i) => i.id === itemId);
-        if (it) return { item: it, room, space: sp };
-      }
-    }
-    return null;
-  };
   const items = {
-    get: (itemId) => wire(() => findItem(itemId) || fail("not_found", "Item finns inte")),
-    update: (itemId, patch) =>
-      wire(() => {
-        const found = findItem(itemId);
-        if (!found) fail("not_found", "Item finns inte");
-        Object.assign(found.item, patch);
-        return found.item;
-      })
+    listForRoom: (spaceId, roomId) => get(`/spaces/${spaceId}/rooms/${roomId}/items`).then(data),
+    get: (itemId) => get(`/items/${itemId}`).then(data),
+    update: (itemId, patchBody) => patch(`/items/${itemId}`, patchBody).then(data)
   };
 
   // ---------- Passages (append-only log) ----------
   const passages = {
-    list: (spaceId) => wire(() => requireSpace(spaceId).passages || []),
-    create: (spaceId, entry) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        const passage = { time: "just nu", ...entry };
-        sp.passages = [passage, ...(sp.passages || [])];
-        return passage;
-      })
+    list: (spaceId) => get(`/spaces/${spaceId}/passages`).then(data),
+    create: (spaceId, entry) => post(`/spaces/${spaceId}/passages`, entry).then(data)
   };
 
   // ---------- Artifacts ----------
   const artifacts = {
-    list: (spaceId) => wire(() => requireSpace(spaceId).artifacts || []),
-    get: (artifactId) =>
-      wire(() => {
-        for (const sp of Object.values(window.SPACES)) {
-          const a = (sp.artifacts || []).find((x) => x.id === artifactId);
-          if (a) return a;
-        }
-        fail("not_found", "Artifact finns inte");
-      })
+    list: (spaceId) => get(`/spaces/${spaceId}/artifacts`).then(data),
+    get: (artifactId) => get(`/artifacts/${artifactId}`).then(data)
   };
 
   // ---------- Inbox / mail per Space ----------
   const inbox = {
-    listForSpace: (spaceId) => wire(() => requireSpace(spaceId).inbox || [])
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/inbox`).then(data)
   };
   const mail = {
-    get: (mailId) =>
-      wire(() => {
-        for (const sp of Object.values(window.SPACES)) {
-          const m = (sp.inbox || []).find((x) => x._id === mailId);
-          if (m) return m;
-        }
-        fail("not_found", "Mail finns inte");
-      })
+    get: (mailId) => get(`/mail/${mailId}`).then(data)
   };
 
   // ---------- Replay ----------
   const replay = {
-    batch: (spaceId) => wire(() => requireSpace(spaceId).replayBatch || []),
-    run: (spaceId, mailIndexes) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        const batch = sp.replayBatch || [];
-        return mailIndexes.map((i) => batch[i]).filter(Boolean);
-      })
+    batch: (spaceId) => get(`/spaces/${spaceId}/replay-batch`).then(data),
+    run: (spaceId, mailIds) => post(`/spaces/${spaceId}/replay`, { mailIds }).then((json) => json.results)
   };
 
   // ---------- Outbox ----------
   const outbox = {
-    get: (spaceId) => wire(() => requireSpace(spaceId).outbox || { queued: [], sent: [] }),
-    approve: (spaceId, idx) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        const [msg] = sp.outbox.queued.splice(idx, 1);
-        if (!msg) fail("not_found", "Köat meddelande finns inte");
-        sp.outbox.sent = [
-          { from: msg.from, to: msg.to, subject: msg.subject, time: "just nu", passage: "Godkänd manuellt" },
-          ...sp.outbox.sent
-        ];
-        return sp.outbox;
-      }),
-    update: (spaceId, idx, patch) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        const msg = sp.outbox.queued[idx];
-        if (!msg) fail("not_found", "Köat meddelande finns inte");
-        Object.assign(msg, patch);
-        return msg;
-      }),
-    cancel: (spaceId, idx) =>
-      wire(() => {
-        const sp = requireSpace(spaceId);
-        const [msg] = sp.outbox.queued.splice(idx, 1);
-        if (!msg) fail("not_found", "Köat meddelande finns inte");
-        return null;
-      })
+    get: (spaceId) => get(`/spaces/${spaceId}/outbox`).then(data),
+    approve: (spaceId, messageId) => post(`/spaces/${spaceId}/outbox/${messageId}/approve`).then(data),
+    update: (spaceId, messageId, patchBody) =>
+      patch(`/spaces/${spaceId}/outbox/${messageId}`, patchBody).then(data),
+    cancel: (spaceId, messageId) => del(`/spaces/${spaceId}/outbox/${messageId}`)
   };
 
   // ---------- Contacts ----------
   const contacts = {
-    listForSpace: (spaceId) => wire(() => requireSpace(spaceId).contacts || []),
-    listGlobal: (spaceIds) => wire(() => window.buildGlobalContacts(window.SPACES, spaceIds))
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/contacts`).then(data),
+    listGlobal: () => get("/contacts").then(data)
   };
 
   // ---------- Global inbox & classification ----------
   const globalInbox = {
-    get: (spaceIds, unclassifiedList) =>
-      wire(() => {
-        const routed = spaceIds.flatMap((sid) => {
-          const sp = window.SPACES[sid];
-          return (sp.inbox || []).map((m) => ({
-            ...m,
-            spaceId: sid,
-            spaceName: sp.name,
-            spaceAddress: sp.address
-          }));
-        });
-        return { routed, unclassified: unclassifiedList };
-      })
+    get: () => get("/inbox")
   };
   const unclassified = {
-    // spaceId === null -> "ingen process", just drops the item from the queue.
-    assign: (list, idx, spaceId) =>
-      wire(() => {
-        const item = list[idx];
-        if (!item) fail("not_found", "Mail finns inte i triage-kön");
-        if (spaceId) {
-          const sp = requireSpace(spaceId);
-          const room = sp.rooms && sp.rooms[0];
-          sp.inbox = [
-            ...(sp.inbox || []),
-            { ...item, room: room ? room.name : "Inkorg", confidence: "high" }
-          ];
-        }
-        return item;
-      })
+    list: () => get("/unclassified").then(data),
+    assign: (mailId, spaceId) => post(`/unclassified/${mailId}/assign`, { spaceId }).then(data)
   };
 
   // ---------- Processes (derived, read-only) ----------
   const processes = {
-    list: (spaceIds) => wire(() => spaceIds.map((id) => window.SPACES[id]).filter(Boolean))
+    list: () => get("/processes").then(data)
   };
 
   // ---------- Space-specific: Möten / Beslut (styrelse) ----------
   const meetings = {
-    listForSpace: (spaceId) => wire(() => requireSpace(spaceId).meetings || []),
-    get: (spaceId, meetingId) =>
-      wire(() => {
-        const m = (requireSpace(spaceId).meetings || []).find((x) => x.id === meetingId);
-        return m || fail("not_found", "Meeting finns inte");
-      })
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/meetings`).then(data),
+    get: (meetingId) => get(`/meetings/${meetingId}`).then(data)
   };
   const decisions = {
-    listForSpace: (spaceId) =>
-      wire(() => {
-        const out = [];
-        (requireSpace(spaceId).meetings || []).forEach((m) =>
-          (m.decisions || []).forEach((d) => out.push({ ...d, meetingTitle: m.title, date: m.date }))
-        );
-        return out;
-      })
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/decisions`).then(data)
   };
 
   // ---------- Space-specific: Efterlevnad / Verifikationer (bokföring) ----------
   const compliance = {
-    listForSpace: (spaceId) => wire(() => requireSpace(spaceId).compliance || [])
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/compliance`).then(data)
   };
   const verifications = {
-    listForSpace: (spaceId) => wire(() => requireSpace(spaceId).verifications || [])
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/verifications`).then(data)
   };
 
   window.API = {

@@ -71,4 +71,54 @@ const ConfirmModal = ({ open, title, body, confirmLabel = "Ta bort", onConfirm, 
   );
 };
 
+// Formats an ISO 8601 timestamp from the API into the short Swedish labels
+// the prototype's demo data used to hard-code ("Idag 14:32", "Igår 16:22",
+// "11 dec", "3 okt 2025"). The API only ever gives us real timestamps —
+// this presentation formatting belongs in the frontend (see API-SPEC.md).
+const MONTHS_SV = [
+  "jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"
+];
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const sameDay = (a, b) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+const formatDateTime = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+  if (sameDay(d, now)) return `Idag ${time}`;
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, yesterday)) return `Igår ${time}`;
+
+  const datePart = `${d.getDate()} ${MONTHS_SV[d.getMonth()]}`;
+  return d.getFullYear() === now.getFullYear() ? datePart : `${datePart} ${d.getFullYear()}`;
+};
+
+const formatDayLabel = (iso) => {
+  const d = new Date(iso);
+  const now = new Date();
+  if (sameDay(d, now)) return "Idag";
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, yesterday)) return "Igår";
+
+  const datePart = `${d.getDate()} ${MONTHS_SV[d.getMonth()]}`;
+  return d.getFullYear() === now.getFullYear() ? datePart : `${datePart} ${d.getFullYear()}`;
+};
+
+const formatTime = (iso) => {
+  const d = new Date(iso);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+
+window.formatDateTime = formatDateTime;
+window.formatDayLabel = formatDayLabel;
+window.formatTime = formatTime;
+
 Object.assign(window, { EntityTag, StateDot, M4WLogo, LinkToggle, CopyAddress, ConfirmModal });

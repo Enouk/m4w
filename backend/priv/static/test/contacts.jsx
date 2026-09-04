@@ -54,12 +54,19 @@ const groupContacts = (list) => {
 // ---------- Scoped: contacts for the selected Space (a Kör tab) ----------
 
 const ContactsTab = ({ space }) => {
-  const groups = groupContacts(space.contacts || []);
-  const total = (space.contacts || []).length;
+  const [contacts, setContacts] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.contacts.listForSpace(space.id).then(setContacts);
+  }, [space.id]);
+
+  if (contacts === null) return null;
+
+  const groups = groupContacts(contacts);
   return (
     <div className="contacts">
       <div className="contacts-intro">
-        {total} aktörer inblandade i detta Space — människor och AI-agenter.
+        {contacts.length} aktörer inblandade i detta Space — människor och AI-agenter.
       </div>
       {GROUP_ORDER.filter((g) => groups[g]).map((g) => (
         <section key={g} className="contact-group">
@@ -67,8 +74,8 @@ const ContactsTab = ({ space }) => {
             {GROUP_LABEL[g]} <span className="contact-group-count">{groups[g].length}</span>
           </div>
           <ul className="contact-list">
-            {groups[g].map((c, i) => (
-              <ContactRow key={i} c={c} />
+            {groups[g].map((c) => (
+              <ContactRow key={c.id} c={c} />
             ))}
           </ul>
         </section>
@@ -117,9 +124,16 @@ const GlobalContactRow = ({ c, onJump }) => (
   </li>
 );
 
-const ContactsGlobalView = ({ contacts, onJump }) => {
+const ContactsGlobalView = ({ onJump }) => {
+  const [contacts, setContacts] = React.useState(null);
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState("all");
+
+  React.useEffect(() => {
+    window.API.contacts.listGlobal().then(setContacts);
+  }, []);
+
+  if (contacts === null) return null;
 
   const q = query.trim().toLowerCase();
   const filtered = contacts.filter((c) => {

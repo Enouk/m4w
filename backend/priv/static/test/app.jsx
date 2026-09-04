@@ -1,7 +1,7 @@
 // App shell: auth + state machine + composition.
 
 // Editable Space name + category, lives in the Space header (not the Sidebar).
-const SpaceIdentity = ({ space, category, onRename, onChangeCategory }) => {
+const SpaceIdentity = ({ space, categories, onRename, onChangeCategory }) => {
   const [editingName, setEditingName] = React.useState(false);
   const [draftName, setDraftName] = React.useState(space.name);
   const [editingCategory, setEditingCategory] = React.useState(false);
@@ -65,7 +65,7 @@ const SpaceIdentity = ({ space, category, onRename, onChangeCategory }) => {
         <select
           ref={categoryRef}
           className="space-category-select"
-          value={category || ""}
+          value={space.category || ""}
           onChange={(e) => {
             onChangeCategory(e.target.value);
             setEditingCategory(false);
@@ -74,7 +74,7 @@ const SpaceIdentity = ({ space, category, onRename, onChangeCategory }) => {
           aria-label={"Kategori för " + space.name}
         >
           <option value="">Ingen kategori</option>
-          {window.SPACE_CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
@@ -85,7 +85,7 @@ const SpaceIdentity = ({ space, category, onRename, onChangeCategory }) => {
           onClick={() => setEditingCategory(true)}
           title="Byt kategori"
         >
-          {category || "Ingen kategori"}
+          {space.category || "Ingen kategori"}
         </button>
       )}
       <CopyAddress address={space.address} />
@@ -94,32 +94,63 @@ const SpaceIdentity = ({ space, category, onRename, onChangeCategory }) => {
 };
 
 const App = () => {
-  const [userId, setUserId] = React.useState(() => localStorage.getItem("m4w_user_id"));
-  const user = userId ? window.USERS[userId] : null;
+  const [user, setUser] = React.useState(null);
+  const [checkingSession, setCheckingSession] = React.useState(true);
 
-  const [selectedSpace, setSelectedSpace] = React.useState(() => {
-    const uid = localStorage.getItem("m4w_user_id");
-    const u = uid ? window.USERS[uid] : null;
-    return u ? u.spaces[0] : null;
-  });
+  const [spaces, setSpaces] = React.useState([]);
+  const [categories, setCategories] = React.useState([]);
+  const [roomsById, setRoomsById] = React.useState({});
+  const [inboxCount, setInboxCount] = React.useState(0);
+  const [unclassifiedCount, setUnclassifiedCount] = React.useState(0);
+  const [contactsCount, setContactsCount] = React.useState(0);
+
+  const [selectedSpace, setSelectedSpace] = React.useState(null);
   const [viewMode, setViewMode] = React.useState("space"); // "space" | "classify" | "contacts" | "inbox" | "processes"
   const [modeBySpace, setModeBySpace] = React.useState({}); // per-space Design/Kör, defaults to "run"
   const [tabBySpace, setTabBySpace] = React.useState({}); // per-space Kör-tab, defaults to "pipeline"
-  const [unclassified, setUnclassified] = React.useState(() => {
-    const uid = localStorage.getItem("m4w_user_id");
-    const u = uid ? window.USERS[uid] : null;
-    return u && !u.org ? window.UNCLASSIFIED_SARA : window.UNCLASSIFIED;
-  });
   const [openItem, setOpenItem] = React.useState(null);
   const [openMail, setOpenMail] = React.useState(null);
-  const [extraSpaceIds, setExtraSpaceIds] = React.useState([]);
-  const [removedSpaceIds, setRemovedSpaceIds] = React.useState([]);
   const [confirmDeleteSpace, setConfirmDeleteSpace] = React.useState(null); // { id, name }
 
-  const spaceIds = user
-    ? [...user.spaces, ...extraSpaceIds].filter((id) => !removedSpaceIds.includes(id))
-    : [];
-  const space = user && selectedSpace ? window.SPACES[selectedSpace] : null;
+  React.useEffect(() => {
+    window.API.me
+      .get()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  const refreshSpaces = () => window.API.spaces.list().then(setSpaces);
+
+  const refreshCounts = () => {
+    window.API.globalInbox.get().then(({ routed, unclassified }) => {
+      setInboxCount(routed.length + unclassified.length);
+      setUnclassifiedCount(unclassified.length);
+    });
+    window.API.contacts.listGlobal().then((list) => setContactsCount(list.length));
+  };
+
+  React.useEffect(() => {
+    if (!user) return;
+    window.API.spaceCategories.list().then(setCategories);
+    refreshSpaces();
+    refreshCounts();
+    setSelectedSpace((prev) => prev || (user.spaces.length ? user.spaces[0] : null));
+  }, [user]);
+
+  React.useEffect(() => {
+    if (spaces.length === 0) {
+      setRoomsById({});
+      return;
+    }
+    Promise.all(spaces.map((sp) => window.API.rooms.list(sp.id))).then((lists) => {
+      const map = {};
+      lists.forEach((rs) => rs.forEach((r) => (map[r.id] = r)));
+      setRoomsById(map);
+    });
+  }, [spaces]);
+
+  const space = spaces.find((sp) => sp.id === selectedSpace) || null;
   const mode = (space && modeBySpace[space.id]) || "run";
   const tab = (space && tabBySpace[space.id]) || "pipeline";
 
@@ -135,7 +166,8 @@ const App = () => {
   // into Design mode so they can set a goal and generate its Rooms.
   const createSpace = (name, category) => {
     window.API.spaces.create({ name, category }).then((sp) => {
-      setExtraSpaceIds((prev) => [...prev, sp.id]);
+      refreshSpaces();
+      refreshCounts();
       setSelectedSpace(sp.id);
       setModeBySpace((p) => ({ ...p, [sp.id]: "design" }));
       setViewMode("space");
@@ -143,16 +175,11 @@ const App = () => {
   };
 
   const setSpaceCategory = (id, category) => {
-    window.API.spaces.update(id, { category: category || null }).then(() => bumpVersion());
+    window.API.spaces.update(id, { category: category || null }).then(refreshSpaces);
   };
 
-  // Space fields live on the shared window.SPACES object; the API mutates in
-  // place, so bump a version counter to force a re-render (Sidebar, Processer,
-  // etc. all read straight off window.SPACES).
-  const [, bumpVersion] = React.useReducer((n) => n + 1, 0);
   const renameSpace = (id, name) => {
-    if (!window.SPACES[id]) return;
-    window.API.spaces.update(id, { name }).then(() => bumpVersion());
+    window.API.spaces.update(id, { name }).then(refreshSpaces);
   };
 
   const requestDeleteSpace = (id, name) => setConfirmDeleteSpace({ id, name });
@@ -160,11 +187,12 @@ const App = () => {
   const deleteSpace = () => {
     const id = confirmDeleteSpace.id;
     window.API.spaces.delete(id).then(() => {
-      setRemovedSpaceIds((prev) => [...prev, id]);
       setConfirmDeleteSpace(null);
+      refreshSpaces();
+      refreshCounts();
       if (selectedSpace === id) {
-        const remaining = spaceIds.filter((sid) => sid !== id);
-        setSelectedSpace(remaining[0] || null);
+        const remaining = spaces.filter((sp) => sp.id !== id);
+        setSelectedSpace(remaining[0] ? remaining[0].id : null);
         setViewMode(remaining[0] ? "space" : "inbox");
       }
     });
@@ -179,55 +207,40 @@ const App = () => {
     setViewMode("space");
   };
 
-  const assignClassify = (idx, spaceId) => {
-    window.API.unclassified.assign(unclassified, idx, spaceId).then(() => {
-      setUnclassified((prev) => prev.filter((_, i) => i !== idx));
-    });
-  };
-
-  const login = (id) => {
-    window.API.auth.login(id).then(({ user: u }) => {
-      setUserId(u.id);
-      setSelectedSpace(u.spaces[0]);
+  const login = (email, password) =>
+    window.API.auth.login(email, password).then(({ user: u }) => {
+      setUser(u);
+      setSelectedSpace(u.spaces[0] || null);
       setViewMode("space");
       setModeBySpace({});
       setTabBySpace({});
-      setExtraSpaceIds([]);
-      setRemovedSpaceIds([]);
-      setUnclassified(u.org ? window.UNCLASSIFIED : window.UNCLASSIFIED_SARA);
       setOpenItem(null);
+      setOpenMail(null);
+    });
+
+  const logout = () => {
+    window.API.auth.logout().finally(() => {
+      setUser(null);
+      setSpaces([]);
+      setSelectedSpace(null);
     });
   };
 
-  const logout = () => {
-    window.API.auth.logout().then(() => setUserId(null));
-  };
+  const openMailFromGlobal = (m) =>
+    setOpenMail({ mail: m, spaceId: m.spaceId, spaceName: m.spaceName, spaceAddress: m.spaceAddress });
+
+  if (checkingSession) return null;
 
   if (!user) {
     return <LoginView onLogin={login} />;
   }
 
-  const scopedContacts = window.buildGlobalContacts(window.SPACES, spaceIds);
-
-  const routedItems = spaceIds.flatMap((sid) => {
-    const sp = window.SPACES[sid];
-    return (sp.inbox || []).map((m) => ({ ...m, spaceId: sid, spaceName: sp.name, spaceAddress: sp.address }));
-  });
-  const inboxTotal = routedItems.length + unclassified.length;
-
-  // Global Inbox rows already carry spaceId/spaceName/spaceAddress merged in
-  // (routed) or not at all (unrouted, falls back to "Att klassificera").
-  const openMailFromGlobal = (m) =>
-    setOpenMail({ mail: m, spaceId: m.spaceId, spaceName: m.spaceName, spaceAddress: m.spaceAddress });
-
   return (
     <div className="app">
       <Sidebar
         user={user}
-        spaceOrder={spaceIds}
-        spaceCategories={Object.fromEntries(
-          spaceIds.map((id) => [id, window.SPACES[id].category])
-        )}
+        spaces={spaces}
+        categories={categories}
         selectedSpace={selectedSpace}
         viewMode={viewMode}
         onSelectSpace={selectSpace}
@@ -238,41 +251,32 @@ const App = () => {
         onSelectContacts={() => setViewMode("contacts")}
         onSelectProcesses={() => setViewMode("processes")}
         onLogout={logout}
-        inboxCount={inboxTotal}
-        unclassifiedCount={unclassified.length}
-        contactsCount={scopedContacts.length}
-        processesCount={spaceIds.length}
+        inboxCount={inboxCount}
+        unclassifiedCount={unclassifiedCount}
+        contactsCount={contactsCount}
+        processesCount={spaces.length}
       />
 
       <main className="main">
         {viewMode === "inbox" ? (
           <GlobalInboxView
-            routedItems={routedItems}
-            unclassified={unclassified}
-            spaces={Object.fromEntries(spaceIds.map((id) => [id, window.SPACES[id]]))}
-            onAssign={assignClassify}
-            onJump={(id) => jumpToSpace(id, "inbox")}
+            spacesById={Object.fromEntries(spaces.map((sp) => [sp.id, sp]))}
+            roomsById={roomsById}
             onOpenMail={openMailFromGlobal}
+            onCountsChanged={refreshCounts}
           />
         ) : viewMode === "classify" ? (
-          <ClassifyView
-            items={unclassified}
-            spaces={Object.fromEntries(spaceIds.map((id) => [id, window.SPACES[id]]))}
-            onAssign={assignClassify}
-          />
+          <ClassifyView spaces={spaces} onCountsChanged={refreshCounts} />
         ) : viewMode === "contacts" ? (
-          <ContactsGlobalView contacts={scopedContacts} onJump={jumpToSpace} />
+          <ContactsGlobalView onJump={jumpToSpace} />
         ) : viewMode === "processes" ? (
-          <ProcessesView
-            spaces={Object.fromEntries(spaceIds.map((id) => [id, window.SPACES[id]]))}
-            onOpenSpace={(id) => jumpToSpace(id, "pipeline")}
-          />
-        ) : (
+          <ProcessesView onOpenSpace={(id) => jumpToSpace(id, "pipeline")} />
+        ) : !space ? null : (
           <div className="space-view">
             <header className="space-head">
               <SpaceIdentity
                 space={space}
-                category={space.category}
+                categories={categories}
                 onRename={(name) => renameSpace(selectedSpace, name)}
                 onChangeCategory={(cat) => setSpaceCategory(selectedSpace, cat)}
               />
@@ -293,6 +297,7 @@ const App = () => {
                 <DesignView key={space.id} space={space} onSaveToRun={() => setMode("run")} />
               ) : (
                 <RunView
+                  key={space.id}
                   space={space}
                   tab={tab}
                   onSetTab={setTab}
@@ -308,11 +313,7 @@ const App = () => {
         )}
       </main>
 
-      <ItemModal
-        open={openItem}
-        onClose={() => setOpenItem(null)}
-        space={space}
-      />
+      <ItemModal open={openItem} onClose={() => setOpenItem(null)} />
 
       <MailModal
         open={openMail}
@@ -323,7 +324,7 @@ const App = () => {
       <ConfirmModal
         open={!!confirmDeleteSpace}
         title={confirmDeleteSpace ? `Ta bort "${confirmDeleteSpace.name}"?` : ""}
-        body="Detta tar bort spacet och all dess data ur den här sessionen. Går inte att ångra."
+        body="Detta tar bort spacet och all dess data. Går inte att ångra."
         confirmLabel="Ta bort space"
         onConfirm={deleteSpace}
         onCancel={() => setConfirmDeleteSpace(null)}

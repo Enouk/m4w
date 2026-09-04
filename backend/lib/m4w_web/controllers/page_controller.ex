@@ -11,7 +11,7 @@ defmodule M4wWeb.PageController do
 
       conn
       |> put_resp_content_type("text/html")
-      |> send_file(200, path)
+      |> send_resp(200, File.read!(path))
     else
       redirect(conn, to: conn.request_path <> "/")
     end

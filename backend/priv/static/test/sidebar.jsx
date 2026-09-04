@@ -1,18 +1,17 @@
 // Left sidebar: SPACES list + ATT KLASSIFICERA + account.
 
-// Groups space ids into ordered category buckets (SPACE_CATEGORIES order,
-// uncategorized spaces last under "Övrigt"). Empty buckets are omitted.
-function groupSpacesByCategory(spaceOrder, spaceCategories) {
-  const order = [...window.SPACE_CATEGORIES, "Övrigt"];
+// Groups spaces into ordered category buckets (categories order, uncategorized
+// spaces last under "Övrigt"). Empty buckets are omitted.
+function groupSpacesByCategory(spaces, categories) {
+  const order = [...categories, "Övrigt"];
   const buckets = new Map(order.map((c) => [c, []]));
-  spaceOrder.forEach((id) => {
-    const cat = spaceCategories[id];
-    const key = cat && buckets.has(cat) ? cat : "Övrigt";
-    buckets.get(key).push(id);
+  spaces.forEach((sp) => {
+    const key = sp.category && buckets.has(sp.category) ? sp.category : "Övrigt";
+    buckets.get(key).push(sp);
   });
   return order
-    .map((category) => ({ category, ids: buckets.get(category) }))
-    .filter((g) => g.ids.length > 0);
+    .map((category) => ({ category, spaces: buckets.get(category) }))
+    .filter((g) => g.spaces.length > 0);
 }
 
 const AccountMenu = ({ user, onLogout }) => {
@@ -53,7 +52,7 @@ const AccountMenu = ({ user, onLogout }) => {
   );
 };
 
-const NewSpaceControl = ({ onCreate }) => {
+const NewSpaceControl = ({ categories, onCreate }) => {
   const [adding, setAdding] = React.useState(false);
   const [name, setName] = React.useState("");
   const [category, setCategory] = React.useState("");
@@ -111,7 +110,7 @@ const NewSpaceControl = ({ onCreate }) => {
         }}
       >
         <option value="">Ingen kategori</option>
-        {window.SPACE_CATEGORIES.map((c) => (
+        {categories.map((c) => (
           <option key={c} value={c}>{c}</option>
         ))}
       </select>
@@ -122,8 +121,8 @@ const NewSpaceControl = ({ onCreate }) => {
 
 const Sidebar = ({
   user,
-  spaceOrder,
-  spaceCategories,
+  spaces,
+  categories,
   selectedSpace,
   onSelectSpace,
   onCreateSpace,
@@ -158,20 +157,19 @@ const Sidebar = ({
 
       <div className="sidebar-section">
         <div className="sidebar-section-label">Spaces</div>
-        {groupSpacesByCategory(spaceOrder, spaceCategories).map((group) => (
+        {groupSpacesByCategory(spaces, categories).map((group) => (
           <div key={group.category} className="sidebar-category-group">
             <div className="sidebar-category-label">{group.category}</div>
             <ul className="sidebar-list">
-              {group.ids.map((id) => {
-                const sp = window.SPACES[id];
-                const active = viewMode === "space" && selectedSpace === id;
+              {group.spaces.map((sp) => {
+                const active = viewMode === "space" && selectedSpace === sp.id;
                 return (
-                  <li key={id}>
+                  <li key={sp.id}>
                     <div className="sidebar-item-row">
                       <button
                         type="button"
                         className={"sidebar-item" + (active ? " is-active" : "")}
-                        onClick={() => onSelectSpace(id)}
+                        onClick={() => onSelectSpace(sp.id)}
                       >
                         <span className="sidebar-item-name">{sp.name}</span>
                         <span className="sidebar-item-count">{sp.activeCount}</span>
@@ -181,7 +179,7 @@ const Sidebar = ({
                         className="sidebar-item-delete"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDeleteSpace(id, sp.name);
+                          onDeleteSpace(sp.id, sp.name);
                         }}
                         aria-label={"Ta bort " + sp.name}
                         title={"Ta bort " + sp.name}
@@ -195,7 +193,7 @@ const Sidebar = ({
             </ul>
           </div>
         ))}
-        <NewSpaceControl onCreate={onCreateSpace} />
+        <NewSpaceControl categories={categories} onCreate={onCreateSpace} />
       </div>
 
       <div className="sidebar-foot">
@@ -231,4 +229,3 @@ const Sidebar = ({
 };
 
 window.Sidebar = Sidebar;
-

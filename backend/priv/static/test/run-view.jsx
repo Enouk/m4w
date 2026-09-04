@@ -1,7 +1,29 @@
 // Run-time view: Pipeline, Inbox (Live + Replay), Outbox.
 
+const SPACE_TABS_BY_CATEGORY = {
+  Board: [{ label: "Möten", value: "moten" }, { label: "Beslut", value: "beslut" }],
+  Accounting: [{ label: "Efterlevnad", value: "efterlevnad" }, { label: "Verifikationer", value: "verifikationer" }]
+};
+
 const PipelineTab = ({ space, onOpenItem, onGoToDesign }) => {
-  if (!space.rooms || space.rooms.length === 0) {
+  const [rooms, setRooms] = React.useState(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    window.API.rooms.list(space.id).then((list) =>
+      Promise.all(list.map((r) => window.API.items.listForRoom(space.id, r.id))).then((itemLists) => {
+        if (cancelled) return;
+        setRooms(list.map((r, i) => ({ ...r, items: itemLists[i] })));
+      })
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [space.id]);
+
+  if (rooms === null) return null;
+
+  if (rooms.length === 0) {
     return (
       <div className="design-empty">
         <div className="design-empty-mark">∅</div>
@@ -21,7 +43,7 @@ const PipelineTab = ({ space, onOpenItem, onGoToDesign }) => {
   return (
     <div className="pipeline">
       <div className="pipeline-track">
-        {space.rooms.map((room, idx) => (
+        {rooms.map((room, idx) => (
           <React.Fragment key={room.id}>
             <div className="pipeline-room">
               <div className="room-head">
@@ -37,7 +59,7 @@ const PipelineTab = ({ space, onOpenItem, onGoToDesign }) => {
                     <button
                       type="button"
                       className="room-item"
-                      onClick={() => onOpenItem({ room, item: it })}
+                      onClick={() => onOpenItem({ room, item: it, spaceName: space.name })}
                     >
                       <StateDot state={it.state} />
                       <div className="room-item-body">
@@ -56,7 +78,7 @@ const PipelineTab = ({ space, onOpenItem, onGoToDesign }) => {
               </ul>
               <div className="room-key">{room.key}</div>
             </div>
-            {idx < space.rooms.length - 1 && <div className="pipeline-flow" aria-hidden="true" />}
+            {idx < rooms.length - 1 && <div className="pipeline-flow" aria-hidden="true" />}
           </React.Fragment>
         ))}
       </div>
@@ -64,17 +86,18 @@ const PipelineTab = ({ space, onOpenItem, onGoToDesign }) => {
   );
 };
 
-const InboxTab = ({ space, onOpenMail }) => {
+const InboxTab = ({ space, roomsById, onOpenMail }) => {
   const [inboxMode, setInboxMode] = React.useState("live");
+  const [inbox, setInbox] = React.useState(null);
+  const [replayBatch, setReplayBatch] = React.useState(null);
   const [selected, setSelected] = React.useState(new Set());
   const [running, setRunning] = React.useState(false);
   const [revealed, setRevealed] = React.useState([]);
 
-  const inbox = space.inbox.length
-    ? space.inbox
-    : [
-        { from: "—", subject: "Inget inkommet ännu i detta Space.", date: "", room: "—", confidence: "high" }
-      ];
+  React.useEffect(() => {
+    window.API.inbox.listForSpace(space.id).then(setInbox);
+    window.API.replay.batch(space.id).then(setReplayBatch);
+  }, [space.id]);
 
   const toggleSelected = (i) => {
     setSelected((prev) => {
@@ -86,7 +109,7 @@ const InboxTab = ({ space, onOpenMail }) => {
   };
 
   const selectAll = () => {
-    const batch = space.replayBatch || [];
+    const batch = replayBatch || [];
     if (selected.size === batch.length) setSelected(new Set());
     else setSelected(new Set(batch.map((_, i) => i)));
   };
@@ -94,18 +117,20 @@ const InboxTab = ({ space, onOpenMail }) => {
   const runReplay = () => {
     setRunning(true);
     setRevealed([]);
-    const batch = (space.replayBatch || []).filter((_, i) => selected.has(i));
-    let i = 0;
-    const tick = () => {
-      i += 1;
-      setRevealed(batch.slice(0, i));
-      if (i < batch.length) {
-        setTimeout(tick, 280);
-      } else {
-        setRunning(false);
-      }
-    };
-    setTimeout(tick, 250);
+    const batch = (replayBatch || []).filter((_, i) => selected.has(i));
+    window.API.replay.run(space.id, batch.map((m) => m.id)).then((results) => {
+      let i = 0;
+      const tick = () => {
+        i += 1;
+        setRevealed(results.slice(0, i));
+        if (i < results.length) {
+          setTimeout(tick, 280);
+        } else {
+          setRunning(false);
+        }
+      };
+      setTimeout(tick, 250);
+    });
   };
 
   const resetReplay = () => {
@@ -113,9 +138,12 @@ const InboxTab = ({ space, onOpenMail }) => {
     setSelected(new Set());
   };
 
-  const replayBatch = space.replayBatch || [];
+  const batch = replayBatch || [];
   const routed = revealed.filter((r) => !r.uncertain).length;
   const uncertain = revealed.filter((r) => r.uncertain).length;
+  const rows = inbox && inbox.length
+    ? inbox
+    : [{ id: null, from: "—", subject: "Inget inkommet ännu i detta Space.", date: null, roomId: null, confidence: "high" }];
 
   return (
     <div className="inbox">
@@ -130,26 +158,29 @@ const InboxTab = ({ space, onOpenMail }) => {
         />
       </div>
 
-      {inboxMode === "live" && (
+      {inboxMode === "live" && inbox !== null && (
         <ul className="inbox-list">
-          {inbox.map((m, i) => (
-            <li
-              key={i}
-              className="inbox-row"
-              onClick={() => m.from !== "—" && onOpenMail && onOpenMail(m)}
-              style={{ cursor: m.from !== "—" ? "pointer" : "default" }}
-            >
-              <div className="inbox-from">{m.from}</div>
-              <div className="inbox-subject">{m.subject}</div>
-              <div className="inbox-date">{m.date}</div>
-              <div className="inbox-room">
-                <span className="inbox-room-tag" data-confidence={m.confidence}>
-                  {m.room}
-                </span>
-                {m.note && <span className="inbox-note">{m.note}</span>}
-              </div>
-            </li>
-          ))}
+          {rows.map((m, i) => {
+            const room = roomsById[m.roomId];
+            return (
+              <li
+                key={m.id || i}
+                className="inbox-row"
+                onClick={() => m.id && onOpenMail && onOpenMail(m)}
+                style={{ cursor: m.id ? "pointer" : "default" }}
+              >
+                <div className="inbox-from">{m.from}</div>
+                <div className="inbox-subject">{m.subject}</div>
+                <div className="inbox-date">{m.date ? window.formatDateTime(m.date) : ""}</div>
+                <div className="inbox-room">
+                  <span className="inbox-room-tag" data-confidence={m.confidence}>
+                    {room ? room.name : "—"}
+                  </span>
+                  {m.note && <span className="inbox-note">{m.note}</span>}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -168,12 +199,12 @@ const InboxTab = ({ space, onOpenMail }) => {
                 onClick={selectAll}
                 disabled={running}
               >
-                {selected.size === replayBatch.length ? "Avmarkera alla" : "Markera alla"}
+                {selected.size === batch.length ? "Avmarkera alla" : "Markera alla"}
               </button>
             </div>
             <ul className="replay-pick-list">
-              {replayBatch.map((r, i) => (
-                <li key={i}>
+              {batch.map((r, i) => (
+                <li key={r.id}>
                   <label className="replay-pick-row">
                     <input
                       type="checkbox"
@@ -211,12 +242,12 @@ const InboxTab = ({ space, onOpenMail }) => {
               <ul className="replay-result-list">
                 {revealed.map((r, i) => (
                   <li
-                    key={i}
+                    key={r.mailId}
                     className={"replay-result-row" + (r.uncertain ? " is-uncertain" : "")}
                     style={{ animationDelay: `${i * 40}ms` }}
                   >
-                    <div className="replay-result-from">{r.from}</div>
-                    <div className="replay-result-subject">{r.subject}</div>
+                    <div className="replay-result-from">{batch.find((b) => b.id === r.mailId)?.from}</div>
+                    <div className="replay-result-subject">{batch.find((b) => b.id === r.mailId)?.subject}</div>
                     <div className="replay-result-room">
                       <span className="inbox-room-tag" data-confidence={r.uncertain ? "medium" : "high"}>
                         {r.room}
@@ -246,40 +277,30 @@ const InboxTab = ({ space, onOpenMail }) => {
   );
 };
 
-// Group passages by day-bucket inferred from the time prefix.
+// Group passages by day-bucket, most recent first.
 const groupPassages = (passages) => {
   const groups = [];
-  const bucketOf = (time) => {
-    if (/^igår/i.test(time)) return "Igår";
-    if (/^\d{1,2}\s/.test(time)) return time.replace(/\s+\d{1,2}[:.]\d{2}.*$/, "").trim();
-    return "Idag";
-  };
   passages.forEach((p) => {
-    const bucket = bucketOf(p.time);
+    const bucket = window.formatDayLabel(p.timestamp);
     let g = groups.find((x) => x.bucket === bucket);
     if (!g) {
       g = { bucket, rows: [] };
       groups.push(g);
     }
-    // strip the day prefix from the displayed time inside a dated bucket
-    const shortTime = p.time.replace(/^igår\s*/i, "").replace(/^\d{1,2}\s+\w+\s*/, "").trim() || p.time;
-    g.rows.push({ ...p, shortTime });
+    g.rows.push(p);
   });
   return groups;
 };
 
-// Parse a freeform passage string into a structured shape so we can render
-// room → room transitions graphically instead of as flat text.
-const parsePassage = (text) => {
-  const t = text.match(/^(.*?)\s+passerade\s+från\s+(.+?)\s+till\s+(.+)$/i);
-  if (t) return { kind: "transition", subject: t[1].trim(), from: t[2].trim(), to: t[3].trim() };
-  // single-room events: "… i/till <Room>" or terminal logs
+// Classifies a passage as a Room→Room transition (when the API gave us
+// structured fromRoomId/toRoomId) or a plain event line.
+const parsePassage = (p) => {
+  if (p.fromRoomId && p.toRoomId) return { kind: "transition" };
   let tone = "neutral";
-  if (/loggad|loggade|exporterad|bekräftad|klar|signerat/i.test(text)) tone = "done";
-  else if (/skickad|skickat|påminnelse/i.test(text)) tone = "send";
-  else if (/osäker|överskriden|avvikelse/i.test(text)) tone = "amber";
-  const r = text.match(/\b(?:i|till)\s+([A-ZÅÄÖ][\wÅÄÖåäö-]+)\s*$/);
-  return { kind: "event", text, tone, room: r ? r[1] : null };
+  if (/loggad|loggade|exporterad|bekräftad|klar|signerat/i.test(p.text)) tone = "done";
+  else if (/skickad|skickat|påminnelse/i.test(p.text)) tone = "send";
+  else if (/osäker|överskriden|avvikelse/i.test(p.text)) tone = "amber";
+  return { kind: "event", tone };
 };
 
 const RoomChip = ({ name }) => <span className="room-chip">{name}</span>;
@@ -296,8 +317,15 @@ const ARTIFACT_TONE = {
   utkast: "neutral", granskas: "amber"
 };
 
-const ArtifactsTab = ({ space }) => {
-  const items = space.artifacts || [];
+const ArtifactsTab = ({ space, roomsById }) => {
+  const [items, setItems] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.artifacts.list(space.id).then(setItems);
+  }, [space.id]);
+
+  if (items === null) return null;
+
   return (
     <div className="artifacts-tab">
       <div className="meetings-intro">
@@ -309,7 +337,7 @@ const ArtifactsTab = ({ space }) => {
           <li key={a.id} className="artifact-card">
             <div className="artifact-top">
               <span className="artifact-ext" data-kind={a.kind}>{a.kind}</span>
-              <RoomChip name={a.room} />
+              {roomsById[a.roomId] && <RoomChip name={roomsById[a.roomId].name} />}
             </div>
             <div className="artifact-title">{a.title}</div>
             <div className="artifact-meta">
@@ -317,10 +345,10 @@ const ArtifactsTab = ({ space }) => {
                 {ARTIFACT_STATUS[a.status] || a.status}
               </span>
               <span className="dot-sep">·</span>
-              <span className="mono-sub">{a.date}</span>
+              <span className="mono-sub">{window.formatDateTime(a.date)}</span>
             </div>
             <div className="artifact-foot">
-              <span className="artifact-by">{a.by}</span>
+              <span className="artifact-by">{a.createdBy}</span>
               <span className="artifact-size mono-sub">{a.size}</span>
             </div>
           </li>
@@ -336,7 +364,14 @@ const ArtifactsTab = ({ space }) => {
 const MEETING_STATUS_LABEL = { planerat: "Planerat", genomfört: "Genomfört", pagar: "Pågår" };
 
 const MeetingsTab = ({ space }) => {
-  const meetings = space.meetings || [];
+  const [meetings, setMeetings] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.meetings.listForSpace(space.id).then(setMeetings);
+  }, [space.id]);
+
+  if (meetings === null) return null;
+
   return (
     <div className="meetings-tab">
       <div className="meetings-intro">
@@ -423,20 +458,23 @@ const MeetingsTab = ({ space }) => {
 };
 
 const DecisionsTab = ({ space }) => {
-  const meetings = (space.meetings || []).filter((m) => m.decisions.length);
-  const all = [];
-  meetings.forEach((m) =>
-    m.decisions.forEach((d) => all.push({ ...d, meetingTitle: m.title, date: m.date }))
-  );
+  const [all, setAll] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.decisions.listForSpace(space.id).then(setAll);
+  }, [space.id]);
+
+  if (all === null) return null;
+
   return (
     <div className="decisions-tab">
       <div className="meetings-intro">
         Beslutsregister — alla beslut som fattats, spårbara till mötet de togs på.
       </div>
       <ul className="register-list">
-        {all.map((d, i) => (
-          <li key={i} className="register-row">
-            <div className="register-date mono-sub">{d.date}</div>
+        {all.map((d) => (
+          <li key={d.id} className="register-row">
+            <div className="register-date mono-sub">{window.formatDateTime(d.date)}</div>
             <div className="register-node" aria-hidden="true">
               <span className="register-dot" data-outcome={d.outcome} />
             </div>
@@ -460,10 +498,19 @@ const DecisionsTab = ({ space }) => {
   );
 };
 
-const PassagesTab = ({ space }) => {
-  const groups = groupPassages(space.passages || []);
-  const total = (space.passages || []).length;
-  const transitions = (space.passages || []).filter((p) => /passerade/i.test(p.text)).length;
+const PassagesTab = ({ space, roomsById }) => {
+  const [passages, setPassages] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.passages.list(space.id).then(setPassages);
+  }, [space.id]);
+
+  if (passages === null) return null;
+
+  const groups = groupPassages(passages);
+  const total = passages.length;
+  const transitions = passages.filter((p) => p.fromRoomId && p.toRoomId).length;
+
   return (
     <div className="passages-tab">
       <div className="passages-header">
@@ -490,11 +537,11 @@ const PassagesTab = ({ space }) => {
           <div key={g.bucket} className="passages-group">
             <div className="passages-day">{g.bucket}</div>
             <ul className="passages-rows">
-              {g.rows.map((p, i) => {
-                const parsed = parsePassage(p.text);
+              {g.rows.map((p) => {
+                const parsed = parsePassage(p);
                 return (
-                  <li key={i} className="passages-row" data-kind={parsed.kind} data-tone={parsed.tone || "transition"}>
-                    <span className="passages-row-time">{p.shortTime}</span>
+                  <li key={p.id} className="passages-row" data-kind={parsed.kind} data-tone={parsed.tone || "transition"}>
+                    <span className="passages-row-time">{window.formatTime(p.timestamp)}</span>
                     <span className="passages-row-node" aria-hidden="true">
                       <span className="passages-row-dot" />
                     </span>
@@ -502,20 +549,19 @@ const PassagesTab = ({ space }) => {
                       {parsed.kind === "transition" ? (
                         <React.Fragment>
                           <div className="passages-transition">
-                            <RoomChip name={parsed.from} />
+                            <RoomChip name={(roomsById[p.fromRoomId] || {}).name || "?"} />
                             <span className="passages-door" aria-hidden="true">
                               <span className="passages-door-line" />
                               <span className="passages-door-glyph">›</span>
                               <span className="passages-door-line" />
                             </span>
-                            <RoomChip name={parsed.to} />
+                            <RoomChip name={(roomsById[p.toRoomId] || {}).name || "?"} />
                           </div>
-                          <div className="passages-subject">{parsed.subject}</div>
+                          <div className="passages-subject">{p.text}</div>
                         </React.Fragment>
                       ) : (
                         <div className="passages-event">
-                          <span className="passages-event-text">{parsed.text}</span>
-                          {parsed.room && <RoomChip name={parsed.room} />}
+                          <span className="passages-event-text">{p.text}</span>
                         </div>
                       )}
                     </div>
@@ -534,12 +580,16 @@ const PassagesTab = ({ space }) => {
 };
 
 const OutboxTab = ({ space }) => {
+  const [ob, setOb] = React.useState(null);
   const [tab, setTab] = React.useState("queued");
-  const [, force] = React.useReducer((n) => n + 1, 0);
-  const ob = space.outbox || { queued: [], sent: [] };
 
-  const approve = (idx) => window.API.outbox.approve(space.id, idx).then(force);
-  const cancel = (idx) => window.API.outbox.cancel(space.id, idx).then(force);
+  const load = () => window.API.outbox.get(space.id).then(setOb);
+  React.useEffect(() => { load(); }, [space.id]);
+
+  if (ob === null) return null;
+
+  const approve = (id) => window.API.outbox.approve(space.id, id).then(load);
+  const cancel = (id) => window.API.outbox.cancel(space.id, id).then(load);
 
   return (
     <div className="outbox">
@@ -560,22 +610,22 @@ const OutboxTab = ({ space }) => {
 
       {tab === "queued" && (
         <ul className="queued-list">
-          {ob.queued.map((q, i) => (
-            <li key={i} className="queued-card">
+          {ob.queued.map((q) => (
+            <li key={q.id} className="queued-card">
               <div className="queued-meta">
                 <span className="queued-from">från {q.from}</span>
                 <span className="dot-sep">·</span>
-                <span className="queued-status" data-status={q.status}>
-                  {q.status}
+                <span className="queued-status" data-status={q.statusNote}>
+                  {q.statusNote}
                 </span>
               </div>
               <div className="queued-to">till {q.to}</div>
               <div className="queued-subject">{q.subject}</div>
               <div className="queued-preview">{q.preview}</div>
               <div className="queued-actions">
-                <button type="button" className="btn btn--small btn--accent" onClick={() => approve(i)}>Godkänn</button>
+                <button type="button" className="btn btn--small btn--accent" onClick={() => approve(q.id)}>Godkänn</button>
                 <button type="button" className="btn btn--small btn--ghost">Redigera</button>
-                <button type="button" className="btn btn--small btn--ghost" onClick={() => cancel(i)}>Avbryt</button>
+                <button type="button" className="btn btn--small btn--ghost" onClick={() => cancel(q.id)}>Avbryt</button>
               </div>
             </li>
           ))}
@@ -587,9 +637,9 @@ const OutboxTab = ({ space }) => {
 
       {tab === "sent" && (
         <ul className="sent-list">
-          {ob.sent.map((s, i) => (
-            <li key={i} className="sent-row">
-              <div className="sent-time">{s.time}</div>
+          {ob.sent.map((s) => (
+            <li key={s.id} className="sent-row">
+              <div className="sent-time">{window.formatDateTime(s.time)}</div>
               <div className="sent-body">
                 <div className="sent-subject">{s.subject}</div>
                 <div className="sent-meta">
@@ -597,7 +647,7 @@ const OutboxTab = ({ space }) => {
                   <span className="dot-sep">·</span>
                   <span>till {s.to}</span>
                   <span className="dot-sep">·</span>
-                  <a className="sent-link" href="#">{s.passage}</a>
+                  <a className="sent-link" href="#">{s.passageNote}</a>
                 </div>
               </div>
             </li>
@@ -616,9 +666,17 @@ const OutboxTab = ({ space }) => {
 const COMPLIANCE_STATUS_LABEL = { uppfyllt: "Uppfyllt", avvikelse: "Avvikelse", pagar: "Pågår" };
 
 const ComplianceTab = ({ space }) => {
-  const items = space.compliance || [];
+  const [items, setItems] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.compliance.listForSpace(space.id).then(setItems);
+  }, [space.id]);
+
+  if (items === null) return null;
+
   const met = items.filter((c) => c.status === "uppfyllt").length;
   const dev = items.filter((c) => c.status === "avvikelse").length;
+
   return (
     <div className="compliance-tab">
       <div className="compliance-head">
@@ -663,8 +721,15 @@ const ComplianceTab = ({ space }) => {
 
 const VER_STATUS_LABEL = { bokförd: "Bokförd", exporterad: "Exporterad", avvikelse: "Avvikelse" };
 
-const VerificationsTab = ({ space }) => {
-  const list = space.verifications || [];
+const VerificationsTab = ({ space, roomsById }) => {
+  const [list, setList] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.verifications.listForSpace(space.id).then(setList);
+  }, [space.id]);
+
+  if (list === null) return null;
+
   return (
     <div className="decisions-tab">
       <div className="meetings-intro">
@@ -682,20 +747,22 @@ const VerificationsTab = ({ space }) => {
           <span>Arkiverad</span>
         </div>
         {list.map((v) => (
-          <div key={v.ver} className="ver-row" data-status={v.status}>
+          <div key={v.id} className="ver-row" data-status={v.status}>
             <span className="ver-num mono-sub">{v.ver}</span>
-            <span className="ver-date">{v.date}</span>
+            <span className="ver-date">{window.formatDateTime(v.date)}</span>
             <span className="ver-supplier">{v.supplier}</span>
             <span className="ver-amount">{v.amount}</span>
             <span>
               <span className="ver-status" data-status={v.status}>{VER_STATUS_LABEL[v.status]}</span>
             </span>
             <span className="ver-trace">
-              <RoomChip name={v.trace.split(" → ")[0]} />
-              <span className="ver-trace-arrow" aria-hidden="true">›</span>
-              <RoomChip name={v.trace.split(" → ")[1]} />
+              {v.traceFromRoomId && <RoomChip name={(roomsById[v.traceFromRoomId] || {}).name || "?"} />}
+              {v.traceFromRoomId && v.traceToRoomId && (
+                <span className="ver-trace-arrow" aria-hidden="true">›</span>
+              )}
+              {v.traceToRoomId && <RoomChip name={(roomsById[v.traceToRoomId] || {}).name || "?"} />}
             </span>
-            <span className="ver-archive mono-sub">{v.archive}</span>
+            <span className="ver-archive mono-sub">{v.archiveUntil}</span>
           </div>
         ))}
       </div>
@@ -704,7 +771,17 @@ const VerificationsTab = ({ space }) => {
 };
 
 const RunView = ({ space, tab, onSetTab, onOpenItem, onOpenMail, onGoToDesign }) => {
-  const spaceTabs = space.spaceTabs || [];
+  const [roomsById, setRoomsById] = React.useState({});
+
+  React.useEffect(() => {
+    window.API.rooms.list(space.id).then((list) => {
+      const map = {};
+      list.forEach((r) => (map[r.id] = r));
+      setRoomsById(map);
+    });
+  }, [space.id]);
+
+  const spaceTabs = SPACE_TABS_BY_CATEGORY[space.category] || [];
   const spaceTabValues = spaceTabs.map((t) => t.value);
   const commonValues = ["inbox", "pipeline", "passages", "artifacts", "outbox", "kontakter"];
   // Guard: if a space-specific tab is active but this Space doesn't offer it, fall back.
@@ -738,13 +815,13 @@ const RunView = ({ space, tab, onSetTab, onOpenItem, onOpenMail, onGoToDesign })
       {effectiveTab === "moten" && <MeetingsTab space={space} />}
       {effectiveTab === "beslut" && <DecisionsTab space={space} />}
       {effectiveTab === "efterlevnad" && <ComplianceTab space={space} />}
-      {effectiveTab === "verifikationer" && <VerificationsTab space={space} />}
+      {effectiveTab === "verifikationer" && <VerificationsTab space={space} roomsById={roomsById} />}
       {effectiveTab === "pipeline" && (
         <PipelineTab space={space} onOpenItem={onOpenItem} onGoToDesign={onGoToDesign} />
       )}
-      {effectiveTab === "passages" && <PassagesTab space={space} />}
-      {effectiveTab === "artifacts" && <ArtifactsTab space={space} />}
-      {effectiveTab === "inbox" && <InboxTab space={space} onOpenMail={onOpenMail} />}
+      {effectiveTab === "passages" && <PassagesTab space={space} roomsById={roomsById} />}
+      {effectiveTab === "artifacts" && <ArtifactsTab space={space} roomsById={roomsById} />}
+      {effectiveTab === "inbox" && <InboxTab space={space} roomsById={roomsById} onOpenMail={onOpenMail} />}
       {effectiveTab === "outbox" && <OutboxTab space={space} />}
       {effectiveTab === "kontakter" && <ContactsTab space={space} />}
     </div>

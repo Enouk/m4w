@@ -1,21 +1,24 @@
 // Design-time view: address, goal prompt, generated rooms, mail context panel.
 
-const DesignView = ({ space, onSaveToRun }) => {
-  // Bokföring starts already-generated (per the brief's "with content" example).
-  // Other Spaces can start empty (user clicks Generera to populate).
-  const initialGenerated = space.id === "bokforing";
+const isPersistedId = (id) => /^\d+$/.test(String(id));
 
+const DesignView = ({ space, onSaveToRun }) => {
   const [goal, setGoal] = React.useState(space.goal);
-  const [rooms, setRooms] = React.useState(
-    initialGenerated ? space.rooms.map((r) => ({ ...r })) : []
-  );
+  const [rooms, setRooms] = React.useState(null); // null = loading
+  const [originalRooms, setOriginalRooms] = React.useState([]);
   const [generating, setGenerating] = React.useState(false);
-  const [revealCount, setRevealCount] = React.useState(
-    initialGenerated ? space.rooms.length : 0
-  );
-  const [mails, setMails] = React.useState(
-    (space.contextMails || []).map((m) => ({ ...m }))
-  );
+  const [saving, setSaving] = React.useState(false);
+  const [revealCount, setRevealCount] = React.useState(0);
+  const [mails, setMails] = React.useState([]);
+
+  React.useEffect(() => {
+    window.API.rooms.list(space.id).then((list) => {
+      setRooms(list);
+      setOriginalRooms(list);
+      setRevealCount(list.length);
+    });
+    window.API.contextMails.list(space.id).then(setMails);
+  }, [space.id]);
 
   const generate = () => {
     setGenerating(true);
@@ -37,9 +40,25 @@ const DesignView = ({ space, onSaveToRun }) => {
   };
 
   // Commits the edited draft (add/remove/edit Rooms) back to the Space via
-  // the API, then switches to Kör.
+  // the API — diffed against what's actually persisted — then switches to Kör.
   const saveToRun = () => {
-    window.API.rooms.replaceAll(space.id, rooms).then(() => onSaveToRun());
+    setSaving(true);
+    const keptIds = new Set(rooms.filter((r) => isPersistedId(r.id)).map((r) => r.id));
+    const deletions = originalRooms
+      .filter((r) => !keptIds.has(r.id))
+      .map((r) => window.API.rooms.delete(space.id, r.id));
+
+    const upserts = rooms.map((r, idx) => {
+      const payload = { name: r.name, subgoal: r.subgoal, key: r.key, entity: r.entity, order: idx };
+      return isPersistedId(r.id)
+        ? window.API.rooms.update(space.id, r.id, payload)
+        : window.API.rooms.create(space.id, payload);
+    });
+
+    Promise.all([...deletions, ...upserts]).then(() => {
+      setSaving(false);
+      onSaveToRun();
+    });
   };
 
   const updateRoom = (idx, patch) => {
@@ -64,11 +83,14 @@ const DesignView = ({ space, onSaveToRun }) => {
   };
 
   const toggleMail = (idx) => {
-    const next = !mails[idx].use;
-    window.API.contextMails.update(space.id, idx, { use: next }).then(() => {
-      setMails((ms) => ms.map((m, i) => (i === idx ? { ...m, use: next } : m)));
+    const m = mails[idx];
+    const next = !m.use;
+    window.API.contextMails.update(space.id, m.id, { use: next }).then(() => {
+      setMails((ms) => ms.map((mm, i) => (i === idx ? { ...mm, use: next } : mm)));
     });
   };
+
+  if (rooms === null) return null;
 
   const visibleRooms = rooms.slice(0, revealCount);
   const hasRooms = visibleRooms.length > 0;
@@ -90,6 +112,9 @@ const DesignView = ({ space, onSaveToRun }) => {
             className="goal-input"
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
+            onBlur={() => {
+              if (goal !== space.goal) window.API.spaces.update(space.id, { goal });
+            }}
             placeholder="Beskriv vad detta Space ska göra. Exempel: Driv styrelsearbete från kallelse till protokoll med full spårbarhet av beslut."
             rows={4}
           />
@@ -103,8 +128,8 @@ const DesignView = ({ space, onSaveToRun }) => {
               {generating ? "Genererar…" : hasRooms ? "Regenerera från mål och valda mail" : "Generera Space"}
             </button>
             {hasRooms && (
-              <button type="button" className="btn btn--ghost" onClick={saveToRun}>
-                Spara och växla till Kör
+              <button type="button" className="btn btn--ghost" onClick={saveToRun} disabled={saving}>
+                {saving ? "Sparar…" : "Spara och växla till Kör"}
               </button>
             )}
           </div>
@@ -187,7 +212,7 @@ const DesignView = ({ space, onSaveToRun }) => {
         ) : (
           <ul className="context-list">
             {mails.map((m, i) => (
-              <li key={i} className={"context-item" + (!m.use ? " is-off" : "")}>
+              <li key={m.id} className={"context-item" + (!m.use ? " is-off" : "")}>
                 <label className="context-check">
                   <input
                     type="checkbox"
@@ -199,7 +224,7 @@ const DesignView = ({ space, onSaveToRun }) => {
                 <div className="context-body">
                   <div className="context-from">{m.from}</div>
                   <div className="context-subject">{m.subject}</div>
-                  <div className="context-date">{m.date}</div>
+                  <div className="context-date">{window.formatDateTime(m.date)}</div>
                 </div>
               </li>
             ))}
