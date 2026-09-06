@@ -13,6 +13,16 @@
 #
 # Usage: ./scripts/test_stalwart_mail.sh
 #        WITH_ROOM=1 ./scripts/test_stalwart_mail.sh   # test the routed-inbox path instead
+#        EML_FILE=~/Downloads/some-message.eml ./scripts/test_stalwart_mail.sh
+#          # send a real downloaded email (Gmail: message -> "Download message",
+#          # or "Show original" -> "Download original") instead of the synthetic
+#          # one built from SUBJECT/BODY/FROM_ADDRESS. The raw message (body,
+#          # attachments, etc.) is relayed as-is, but its To header is
+#          # rewritten to the test space's address — M4w.Mail.StalwartMapper
+#          # matches spaces by the message's To header, not the SMTP envelope
+#          # recipient, so a stale To (e.g. the original board@... address)
+#          # would never route anywhere. The envelope sender is taken from
+#          # the eml's own From header.
 #
 # Override any of these via env vars, e.g.:
 #   LOGIN_EMAIL=sara@ahlenkonsult.se ./scripts/test_stalwart_mail.sh
@@ -37,6 +47,12 @@ WITH_ROOM="${WITH_ROOM:-0}"
 STALWART_URL="${STALWART_URL:-http://localhost:8080}"
 STALWART_USER="${STALWART_USER:-admin@m4w.local}"
 STALWART_PASSWORD="${STALWART_PASSWORD:-app_aaaaaamls0axqze3ks0oidx3a0jwdwlrmuaq}"
+EML_FILE="${EML_FILE:-}"
+
+if [ -n "$EML_FILE" ] && [ ! -f "$EML_FILE" ]; then
+  echo "EML_FILE not found: $EML_FILE" >&2
+  exit 1
+fi
 
 MAIL_ADDRESS="stalwart-test-$(date +%s)@m4w.local"
 SPACE_ID=""
@@ -79,8 +95,51 @@ else
   echo "==> WITH_ROOM=0: leaving space roomless (mail should land as Design-mode context instead of being routed)"
 fi
 
-echo "==> Sending test email to $MAIL_ADDRESS via $SMTP_HOST:$SMTP_PORT"
-python3 - "$SMTP_HOST" "$SMTP_PORT" "$FROM_ADDRESS" "$MAIL_ADDRESS" "$SUBJECT" "$BODY" <<'PY'
+if [ -n "$EML_FILE" ]; then
+  echo "==> Relaying $EML_FILE to $MAIL_ADDRESS via $SMTP_HOST:$SMTP_PORT (rewriting To/Subject/Message-ID)"
+  SUBJECT="$(python3 - "$SMTP_HOST" "$SMTP_PORT" "$MAIL_ADDRESS" "$EML_FILE" <<'PY'
+import email
+import email.utils
+import smtplib
+import sys
+import time
+
+smtp_host, smtp_port, to_addr, eml_path = sys.argv[1:5]
+with open(eml_path, "rb") as f:
+    raw = f.read()
+
+msg = email.message_from_bytes(raw)
+from_addr = email.utils.parseaddr(msg.get("From", ""))[1] or "me@example.com"
+
+if "To" in msg:
+    msg.replace_header("To", to_addr)
+else:
+    msg["To"] = to_addr
+
+# Re-running the same static .eml would otherwise collide with an earlier
+# run's message when this script's spam-rescue path searches Stalwart by
+# subject — tag the subject and mint a fresh Message-ID so each run is
+# distinguishable.
+unique_subject = f"{msg.get('Subject', '')} [test {int(time.time())}]"
+if "Subject" in msg:
+    msg.replace_header("Subject", unique_subject)
+else:
+    msg["Subject"] = unique_subject
+
+if "Message-ID" in msg:
+    msg.replace_header("Message-ID", email.utils.make_msgid())
+else:
+    msg["Message-ID"] = email.utils.make_msgid()
+
+with smtplib.SMTP(smtp_host, int(smtp_port), timeout=10) as smtp:
+    smtp.sendmail(from_addr, [to_addr], msg.as_bytes())
+
+print(unique_subject)
+PY
+)"
+else
+  echo "==> Sending test email to $MAIL_ADDRESS via $SMTP_HOST:$SMTP_PORT"
+  python3 - "$SMTP_HOST" "$SMTP_PORT" "$FROM_ADDRESS" "$MAIL_ADDRESS" "$SUBJECT" "$BODY" <<'PY'
 import smtplib
 import sys
 from email.mime.text import MIMEText
@@ -94,6 +153,7 @@ msg["To"] = to_addr
 with smtplib.SMTP(smtp_host, int(smtp_port), timeout=10) as smtp:
     smtp.sendmail(from_addr, [to_addr], msg.as_string())
 PY
+fi
 
 echo "==> Waiting ${POLL_WAIT}s for the poller to pick it up"
 sleep "$POLL_WAIT"

@@ -119,7 +119,24 @@
     listForSpace: (spaceId) => get(`/spaces/${spaceId}/inbox`).then(data)
   };
   const mail = {
-    get: (mailId) => get(`/mail/${mailId}`).then(data)
+    get: (mailId) => get(`/mail/${mailId}`).then(data),
+    // Attachment downloads need the Authorization header, so a plain <a
+    // href> won't work — fetch as a blob and trigger a client-side download.
+    downloadAttachment: async (url, filename) => {
+      const token = getToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(`Något gick fel (${res.status})`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    }
   };
 
   // ---------- Replay ----------

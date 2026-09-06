@@ -15,8 +15,21 @@ defmodule M4w.Mail.StalwartMapper do
       "fromEmail" => from["email"],
       "subject" => email["subject"],
       "body" => body_paragraphs(email),
-      "date" => email["receivedAt"]
+      "date" => email["receivedAt"],
+      "attachments" => attachments(email)
     }
+  end
+
+  defp attachments(email) do
+    (email["attachments"] || [])
+    |> Enum.map(fn part ->
+      %{
+        "filename" => part["name"] || "attachment",
+        "content_type" => part["type"],
+        "size" => part["size"],
+        "blob_id" => part["blobId"]
+      }
+    end)
   end
 
   defp first_address(nil), do: %{}

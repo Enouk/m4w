@@ -993,6 +993,27 @@ a { color: inherit; }
 .context-subject { font-size: 12.5px; color: var(--text-1); }
 .context-date { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 
+.context-attachments {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.context-attachment-link {
+  font-size: 11px;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.context-attachment-link:hover { color: var(--text); }
+
 /* ---------- Run view ---------- */
 
 .run-view {
@@ -2026,6 +2047,13 @@ a { color: inherit; }
 
 .modal-mail-body p { margin: 0 0 8px; font-size: 13px; color: var(--text-1); line-height: 1.55; }
 .modal-mail-body p:last-child { margin-bottom: 0; }
+
+.modal-mail-attachments {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.modal-mail-attachments .context-attachment-link { font-size: 12.5px; }
 
 .mail-modal-jump {
   margin-top: 18px;

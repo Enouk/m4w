@@ -225,6 +225,21 @@ const DesignView = ({ space, onSaveToRun }) => {
                   <div className="context-from">{m.from}</div>
                   <div className="context-subject">{m.subject}</div>
                   <div className="context-date">{window.formatDateTime(m.date)}</div>
+                  {m.attachments && m.attachments.length > 0 && (
+                    <ul className="context-attachments">
+                      {m.attachments.map((a) => (
+                        <li key={a.id}>
+                          <button
+                            type="button"
+                            className="context-attachment-link"
+                            onClick={() => window.API.mail.downloadAttachment(a.url, a.filename)}
+                          >
+                            📎 {a.filename}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </li>
             ))}

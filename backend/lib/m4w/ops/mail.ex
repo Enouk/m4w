@@ -2,7 +2,7 @@ defmodule M4w.Ops.Mail do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias M4w.Ops.{Room, Space}
+  alias M4w.Ops.{MailAttachment, Room, Space}
 
   schema "ops_mails" do
     field :from, :string
@@ -24,6 +24,7 @@ defmodule M4w.Ops.Mail do
     belongs_to :space, Space
     belongs_to :room, Room
     belongs_to :replay_room, Room
+    has_many :attachments, MailAttachment
 
     timestamps(type: :utc_datetime)
   end

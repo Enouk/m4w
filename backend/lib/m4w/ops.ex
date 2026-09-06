@@ -16,6 +16,7 @@ defmodule M4w.Ops do
     Contact,
     Item,
     Mail,
+    MailAttachment,
     Meeting,
     OutboxMessage,
     Passage,
@@ -276,13 +277,21 @@ defmodule M4w.Ops do
     )
     |> order_by([m], desc: m.occurred_at)
     |> Repo.all()
+    |> Repo.preload(:attachments)
   end
 
-  def get_mail!(id), do: Repo.get!(Mail, to_integer(id))
+  def get_mail!(id), do: Mail |> Repo.get!(to_integer(id)) |> Repo.preload(:attachments)
+
+  def get_mail_attachment(%Mail{id: mail_id}, attachment_id) do
+    MailAttachment
+    |> where([a], a.mail_id == ^mail_id and a.id == ^to_integer(attachment_id))
+    |> Repo.one()
+  end
 
   def create_inbound_mail(attrs) do
     to = Map.get(attrs, "to")
     space = Space |> where([s], s.address == ^to) |> Repo.one()
+    attachments = Map.get(attrs, "attachments") || []
 
     base = %{
       "from" => Map.get(attrs, "from"),
@@ -316,7 +325,21 @@ defmodule M4w.Ops do
           }
       end
 
-    %Mail{} |> Mail.changeset(Map.merge(base, classified)) |> Repo.insert()
+    Repo.transaction(fn ->
+      case %Mail{} |> Mail.changeset(Map.merge(base, classified)) |> Repo.insert() do
+        {:ok, mail} ->
+          Enum.each(attachments, fn attachment ->
+            %MailAttachment{}
+            |> MailAttachment.changeset(Map.put(attachment, "mail_id", mail.id))
+            |> Repo.insert!()
+          end)
+
+          Repo.preload(mail, :attachments, force: true)
+
+        {:error, changeset} ->
+          Repo.rollback(changeset)
+      end
+    end)
   end
 
   defp parse_datetime(nil), do: nil
@@ -335,6 +358,7 @@ defmodule M4w.Ops do
     |> where([m], m.space_id == ^space_id and m.purpose == "context")
     |> order_by([m], desc: m.occurred_at)
     |> Repo.all()
+    |> Repo.preload(:attachments)
   end
 
   def get_context_mail!(%Space{id: space_id}, mail_id) do
@@ -344,6 +368,7 @@ defmodule M4w.Ops do
       m.space_id == ^space_id and m.purpose == "context" and m.id == ^to_integer(mail_id)
     )
     |> Repo.one!()
+    |> Repo.preload(:attachments)
   end
 
   def update_context_mail(%Mail{} = mail, attrs) do
@@ -525,12 +550,14 @@ defmodule M4w.Ops do
       )
       |> order_by([m], desc: m.occurred_at)
       |> Repo.all()
+      |> Repo.preload(:attachments)
 
     unclassified =
       Mail
       |> where([m], is_nil(m.space_id) and m.purpose == "inbox" and m.status == "unclassified")
       |> order_by([m], desc: m.occurred_at)
       |> Repo.all()
+      |> Repo.preload(:attachments)
 
     %{routed: routed, unclassified: unclassified}
   end
@@ -540,6 +567,7 @@ defmodule M4w.Ops do
     |> where([m], is_nil(m.space_id) and m.purpose == "inbox" and m.status == "unclassified")
     |> order_by([m], desc: m.occurred_at)
     |> Repo.all()
+    |> Repo.preload(:attachments)
   end
 
   def assign_unclassified(%Mail{} = mail, nil) do

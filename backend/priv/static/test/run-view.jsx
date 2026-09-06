@@ -141,9 +141,6 @@ const InboxTab = ({ space, roomsById, onOpenMail }) => {
   const batch = replayBatch || [];
   const routed = revealed.filter((r) => !r.uncertain).length;
   const uncertain = revealed.filter((r) => r.uncertain).length;
-  const rows = inbox && inbox.length
-    ? inbox
-    : [{ id: null, from: "—", subject: "Inget inkommet ännu i detta Space.", date: null, roomId: null, confidence: "high" }];
 
   return (
     <div className="inbox">
@@ -159,29 +156,33 @@ const InboxTab = ({ space, roomsById, onOpenMail }) => {
       </div>
 
       {inboxMode === "live" && inbox !== null && (
-        <ul className="inbox-list">
-          {rows.map((m, i) => {
-            const room = roomsById[m.roomId];
-            return (
-              <li
-                key={m.id || i}
-                className="inbox-row"
-                onClick={() => m.id && onOpenMail && onOpenMail(m)}
-                style={{ cursor: m.id ? "pointer" : "default" }}
-              >
-                <div className="inbox-from">{m.from}</div>
-                <div className="inbox-subject">{m.subject}</div>
-                <div className="inbox-date">{m.date ? window.formatDateTime(m.date) : ""}</div>
-                <div className="inbox-room">
-                  <span className="inbox-room-tag" data-confidence={m.confidence}>
-                    {room ? room.name : "—"}
-                  </span>
-                  {m.note && <span className="inbox-note">{m.note}</span>}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        inbox.length === 0 ? (
+          <div className="context-empty">Inget inkommet ännu i detta Space.</div>
+        ) : (
+          <ul className="inbox-list">
+            {inbox.map((m) => {
+              const room = roomsById[m.roomId];
+              return (
+                <li
+                  key={m.id}
+                  className="inbox-row"
+                  onClick={() => onOpenMail && onOpenMail(m)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <div className="inbox-from">{m.from}</div>
+                  <div className="inbox-subject">{m.subject}</div>
+                  <div className="inbox-date">{window.formatDateTime(m.date)}</div>
+                  <div className="inbox-room">
+                    <span className="inbox-room-tag" data-confidence={m.confidence}>
+                      {room ? room.name : "—"}
+                    </span>
+                    {m.note && <span className="inbox-note">{m.note}</span>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )
       )}
 
       {inboxMode === "replay" && (

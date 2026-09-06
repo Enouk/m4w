@@ -28,7 +28,7 @@ defmodule M4w.Mail.StalwartPoller do
     }
 
     send(self(), :poll)
-    {:ok, %{config: config, api_url: nil, account_id: nil, mailbox_id: nil}}
+    {:ok, %{config: config, api_url: nil, account_id: nil, download_url: nil, mailbox_id: nil}}
   end
 
   @impl true
@@ -49,8 +49,8 @@ defmodule M4w.Mail.StalwartPoller do
 
   defp ensure_session(state) do
     case StalwartClient.session(state.config) do
-      {:ok, %{api_url: api_url, account_id: account_id}} ->
-        %{state | api_url: api_url, account_id: account_id}
+      {:ok, %{api_url: api_url, account_id: account_id, download_url: download_url}} ->
+        %{state | api_url: api_url, account_id: account_id, download_url: download_url}
 
       {:error, reason} ->
         Logger.warning("StalwartPoller: could not establish a JMAP session: #{inspect(reason)}")
@@ -71,7 +71,7 @@ defmodule M4w.Mail.StalwartPoller do
       {:error, reason} ->
         Logger.warning("StalwartPoller: could not find the Inbox mailbox: #{inspect(reason)}")
         # The session may be stale (e.g. server restarted) — rediscover next tick.
-        %{state | api_url: nil, account_id: nil}
+        %{state | api_url: nil, account_id: nil, download_url: nil}
     end
   end
 
@@ -86,7 +86,7 @@ defmodule M4w.Mail.StalwartPoller do
            state.config
          ) do
       {:ok, emails} ->
-        seen_ids = Enum.flat_map(emails, &import_email/1)
+        seen_ids = Enum.flat_map(emails, &import_email(&1, state))
 
         if seen_ids != [] do
           case StalwartClient.mark_seen(state.api_url, state.account_id, seen_ids, state.config) do
@@ -102,12 +102,19 @@ defmodule M4w.Mail.StalwartPoller do
 
       {:error, reason} ->
         Logger.warning("StalwartPoller: failed to fetch unseen mail: #{inspect(reason)}")
-        %{state | api_url: nil, account_id: nil, mailbox_id: nil}
+        %{state | api_url: nil, account_id: nil, download_url: nil, mailbox_id: nil}
     end
   end
 
-  defp import_email(email) do
-    case M4w.Ops.create_inbound_mail(StalwartMapper.to_inbound_attrs(email)) do
+  defp import_email(email, state) do
+    attrs =
+      email
+      |> StalwartMapper.to_inbound_attrs()
+      |> Map.update!("attachments", fn attachments ->
+        attachments |> Enum.map(&download_attachment(&1, state)) |> Enum.reject(&is_nil/1)
+      end)
+
+    case M4w.Ops.create_inbound_mail(attrs) do
       {:ok, _mail} ->
         [email["id"]]
 
@@ -119,4 +126,31 @@ defmodule M4w.Mail.StalwartPoller do
         []
     end
   end
+
+  defp download_attachment(
+         %{"blob_id" => blob_id} = attachment,
+         %{download_url: download_url, account_id: account_id, config: config}
+       )
+       when is_binary(blob_id) and is_binary(download_url) do
+    case StalwartClient.download_blob(
+           download_url,
+           account_id,
+           blob_id,
+           attachment["filename"],
+           attachment["content_type"],
+           config
+         ) do
+      {:ok, data} ->
+        Map.put(attachment, "data", data)
+
+      {:error, reason} ->
+        Logger.warning(
+          "StalwartPoller: failed to download attachment #{blob_id}: #{inspect(reason)}"
+        )
+
+        nil
+    end
+  end
+
+  defp download_attachment(_attachment, _state), do: nil
 end

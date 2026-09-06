@@ -54,6 +54,7 @@ defmodule M4wWeb.Router do
 
     post "/inbound-mail", MailController, :inbound
     get "/mail/:mailId", MailController, :show
+    get "/mail/:mailId/attachments/:attachmentId", MailController, :download_attachment
 
     get "/items/:itemId", ItemController, :show
     patch "/items/:itemId", ItemController, :update

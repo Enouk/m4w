@@ -14,7 +14,12 @@ defmodule M4w.Mail.StalwartClient do
         account_id = get_in(body, ["primaryAccounts", @mail_capability])
 
         if account_id && body["apiUrl"] do
-          {:ok, %{api_url: local_api_url(jmap_url, body["apiUrl"]), account_id: account_id}}
+          {:ok,
+           %{
+             api_url: local_url(jmap_url, body["apiUrl"]),
+             account_id: account_id,
+             download_url: body["downloadUrl"] && local_url(jmap_url, body["downloadUrl"])
+           }}
         else
           {:error, {:no_mail_account, body}}
         end
@@ -27,11 +32,17 @@ defmodule M4w.Mail.StalwartClient do
     end
   end
 
-  # Stalwart reports `apiUrl` using its configured public hostname (e.g.
-  # `https://mail.example.com/jmap/`), which usually isn't the address we can
-  # actually reach it at from inside Docker. Only the path is meaningful to
-  # us — keep talking to the same host:port we were configured with.
-  defp local_api_url(jmap_url, api_url), do: jmap_url <> URI.parse(api_url).path
+  # Stalwart reports URLs using its configured public hostname (e.g.
+  # `https://mail.example.com/jmap/...`), which usually isn't the address we
+  # can actually reach it at from inside Docker. Only the path (and query, for
+  # the downloadUrl template) is meaningful to us — keep talking to the same
+  # host:port we were configured with.
+  defp local_url(jmap_url, remote_url) do
+    uri = URI.parse(remote_url)
+    path = uri.path || ""
+    path = if uri.query, do: path <> "?" <> uri.query, else: path
+    jmap_url <> path
+  end
 
   def inbox_mailbox_id(api_url, account_id, config) do
     method_calls = [
@@ -66,7 +77,15 @@ defmodule M4w.Mail.StalwartClient do
         %{
           accountId: account_id,
           "#ids": %{resultOf: "q", name: "Email/query", path: "/ids"},
-          properties: ["from", "to", "subject", "receivedAt", "textBody", "bodyValues"],
+          properties: [
+            "from",
+            "to",
+            "subject",
+            "receivedAt",
+            "textBody",
+            "bodyValues",
+            "attachments"
+          ],
           fetchTextBodyValues: true
         },
         "g"
@@ -101,6 +120,26 @@ defmodule M4w.Mail.StalwartClient do
       error -> error
     end
   end
+
+  # download_url is the session's `downloadUrl` template (RFC 8620 §6.2),
+  # already rewritten to our reachable host by `session/1`, e.g.
+  # ".../jmap/download/{accountId}/{blobId}/{name}?accept={type}".
+  def download_blob(download_url, account_id, blob_id, name, type, config) do
+    url =
+      download_url
+      |> String.replace("{accountId}", uri_encode(account_id))
+      |> String.replace("{blobId}", uri_encode(blob_id))
+      |> String.replace("{name}", uri_encode(name || "attachment"))
+      |> String.replace("{type}", uri_encode(type || "application/octet-stream"))
+
+    case Req.get(url, auth: basic_auth(config), decode_body: false) do
+      {:ok, %{status: 200, body: body}} -> {:ok, body}
+      {:ok, %{status: status}} -> {:error, {:unexpected_status, status}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp uri_encode(value), do: URI.encode(value, &URI.char_unreserved?/1)
 
   defp call(api_url, method_calls, config) do
     body = %{using: [@core_capability, @mail_capability], methodCalls: method_calls}

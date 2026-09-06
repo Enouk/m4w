@@ -1,5 +1,5 @@
 defmodule M4wWeb.Ops.MailJSON do
-  alias M4w.Ops.Mail
+  alias M4w.Ops.{Mail, MailAttachment}
 
   def index(%{mails: mails}), do: %{data: Enum.map(mails, &data/1)}
   def show(%{mail: mail}), do: %{data: data(mail)}
@@ -37,7 +37,21 @@ defmodule M4wWeb.Ops.MailJSON do
       note: mail.note,
       reason: mail.reason,
       status: mail.status,
-      use: mail.use
+      use: mail.use,
+      attachments: Enum.map(loaded_attachments(mail), &attachment_data/1)
+    }
+  end
+
+  defp loaded_attachments(%Mail{attachments: %Ecto.Association.NotLoaded{}}), do: []
+  defp loaded_attachments(%Mail{attachments: attachments}), do: attachments
+
+  defp attachment_data(%MailAttachment{} = attachment) do
+    %{
+      id: to_string(attachment.id),
+      filename: attachment.filename,
+      contentType: attachment.content_type,
+      size: attachment.size,
+      url: "/api/v1/mail/#{attachment.mail_id}/attachments/#{attachment.id}"
     }
   end
 end

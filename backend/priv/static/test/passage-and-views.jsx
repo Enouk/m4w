@@ -193,6 +193,21 @@ const MailModal = ({ open, onClose, onJump }) => {
               <p key={i}>{p}</p>
             ))}
           </div>
+          {mail.attachments && mail.attachments.length > 0 && (
+            <ul className="context-attachments modal-mail-attachments">
+              {mail.attachments.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    className="context-attachment-link"
+                    onClick={() => window.API.mail.downloadAttachment(a.url, a.filename)}
+                  >
+                    📎 {a.filename}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {spaceId && onJump && (
