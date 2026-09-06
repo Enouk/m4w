@@ -24,11 +24,18 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailserver:
+        condition: service_started
     environment:
       DATABASE_HOST: db
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
       DATABASE_NAME: m4w_dev
+      # Filled in after the one-time Stalwart setup (see README): create an
+      # account, a catch-all alias for its domain, and an App Password for it.
+      STALWART_JMAP_URL: http://mailserver:8080
+      STALWART_JMAP_USER: admin@m4w.local
+      STALWART_JMAP_PASSWORD: app_aaaaaamls0axqze3ks0oidx3a0jwdwlrmuaq
     ports:
       - "4000:4000"
     volumes:
@@ -43,8 +50,25 @@ services:
       - app_mix:/root/.mix
       - app_hex:/root/.hex
 
+  mailserver:
+    image: stalwartlabs/stalwart:v0.16
+    restart: unless-stopped
+    # No STALWART_RECOVERY_ADMIN here: in this version it doesn't wire up to
+    # the setup wizard's login screen. Read the one-time generated admin
+    # password from the logs instead (see README) — only needed once, for
+    # the initial setup wizard.
+    ports:
+      - "8080:8080" # Admin UI + JMAP
+      - "25:25" # SMTP (unauthenticated, for sending test mail between containers)
+      - "587:587" # SMTP submission (authenticated, for sending test mail from the host)
+    volumes:
+      - stalwart_etc:/opt/stalwart/etc
+      - stalwart_data:/opt/stalwart/data
+
 volumes:
   app_deps:
   app_build:
   app_mix:
   app_hex:
+  stalwart_etc:
+  stalwart_data:

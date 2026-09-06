@@ -22,6 +22,15 @@ end
 
 config :m4w, M4wWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Stalwart mail server integration (incoming mail). The poller only starts
+# (see M4w.Application) when STALWART_JMAP_URL is set, so this is a no-op
+# unless it's configured — e.g. in test.
+config :m4w, :stalwart,
+  jmap_url: System.get_env("STALWART_JMAP_URL"),
+  jmap_user: System.get_env("STALWART_JMAP_USER"),
+  jmap_password: System.get_env("STALWART_JMAP_PASSWORD"),
+  poll_interval_ms: String.to_integer(System.get_env("STALWART_POLL_INTERVAL_MS", "10000"))
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

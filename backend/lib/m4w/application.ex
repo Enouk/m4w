@@ -7,16 +7,17 @@ defmodule M4w.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      M4wWeb.Telemetry,
-      M4w.Repo,
-      {DNSCluster, query: Application.get_env(:m4w, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: M4w.PubSub},
-      # Start a worker by calling: M4w.Worker.start_link(arg)
-      # {M4w.Worker, arg},
-      # Start to serve requests, typically the last entry
-      M4wWeb.Endpoint
-    ]
+    children =
+      [
+        M4wWeb.Telemetry,
+        M4w.Repo,
+        {DNSCluster, query: Application.get_env(:m4w, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: M4w.PubSub},
+        # Start a worker by calling: M4w.Worker.start_link(arg)
+        # {M4w.Worker, arg},
+        # Start to serve requests, typically the last entry
+        M4wWeb.Endpoint
+      ] ++ stalwart_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -30,5 +31,13 @@ defmodule M4w.Application do
   def config_change(changed, _new, removed) do
     M4wWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp stalwart_children do
+    if Application.get_env(:m4w, :stalwart)[:jmap_url] do
+      [M4w.Mail.StalwartPoller]
+    else
+      []
+    end
   end
 end
