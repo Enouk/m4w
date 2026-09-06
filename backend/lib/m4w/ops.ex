@@ -288,6 +288,8 @@ defmodule M4w.Ops do
     |> Repo.one()
   end
 
+  def delete_mail(%Mail{} = mail), do: Repo.delete(mail)
+
   def create_inbound_mail(attrs) do
     to = Map.get(attrs, "to")
     space = Space |> where([s], s.address == ^to) |> Repo.one()
@@ -303,25 +305,22 @@ defmodule M4w.Ops do
     }
 
     classified =
-      case space && list_rooms(space) do
-        [] ->
-          %{
-            "space_id" => space.id,
-            "status" => "unclassified",
-            "purpose" => "context",
-            "use" => true,
-            "reason" => "inga rum konfigurerade i spacet"
-          }
-
+      case space do
         nil ->
           %{"status" => "unclassified", "reason" => "ingen matchande Space-adress"}
 
-        [first_room | _] ->
+        %Space{} ->
+          room_id =
+            case list_rooms(space) do
+              [first_room | _] -> first_room.id
+              [] -> nil
+            end
+
           %{
-            "status" => "routed",
             "space_id" => space.id,
-            "room_id" => first_room.id,
-            "confidence" => "medium"
+            "status" => "routed",
+            "room_id" => room_id,
+            "confidence" => room_id && "medium"
           }
       end
 
@@ -352,20 +351,18 @@ defmodule M4w.Ops do
   end
 
   # ---------------- Context mails (design-time) ----------------
+  #
+  # Design mode uses the same inbox as Kör — every mail routed to the space
+  # is available as generation context, whether or not it's tied to a Room.
 
-  def list_context_mails(%Space{id: space_id}) do
-    Mail
-    |> where([m], m.space_id == ^space_id and m.purpose == "context")
-    |> order_by([m], desc: m.occurred_at)
-    |> Repo.all()
-    |> Repo.preload(:attachments)
-  end
+  def list_context_mails(%Space{} = space), do: list_space_inbox(space)
 
   def get_context_mail!(%Space{id: space_id}, mail_id) do
     Mail
     |> where(
       [m],
-      m.space_id == ^space_id and m.purpose == "context" and m.id == ^to_integer(mail_id)
+      m.space_id == ^space_id and m.purpose == "inbox" and m.status == "routed" and
+        m.id == ^to_integer(mail_id)
     )
     |> Repo.one!()
     |> Repo.preload(:attachments)

@@ -14,6 +14,12 @@ const ClassifyView = ({ spaces, onCountsChanged }) => {
       onCountsChanged();
     });
 
+  const remove = (mailId) =>
+    window.API.unclassified.delete(mailId).then(() => {
+      load();
+      onCountsChanged();
+    });
+
   return (
     <div className="classify-view">
       <div className="classify-head">
@@ -54,6 +60,13 @@ const ClassifyView = ({ spaces, onCountsChanged }) => {
                   onClick={() => assign(m.id, null)}
                 >
                   Ingen process
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--small btn--danger"
+                  onClick={() => remove(m.id)}
+                >
+                  Ta bort
                 </button>
               </div>
             </div>

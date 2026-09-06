@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Sends a real email through the Stalwart mail server and checks that
-# M4w.Mail.StalwartPoller picked it up and routed it — into a Space's inbox
-# if the space has a Room, or into its Design-mode context mail list if it
-# doesn't (see M4w.Ops.create_inbound_mail/1: a Space with no Rooms yet is
-# still "in design", so inbound mail is captured as context instead of
-# being routed).
+# M4w.Mail.StalwartPoller picked it up and routed it into the Space's inbox
+# (see M4w.Ops.create_inbound_mail/1). A Space's inbox is the same list for
+# both Design mode (used as generation context) and Kör mode, regardless of
+# whether the mail also got routed to a Room — a Room is only assigned once
+# the space has one.
 #
-# Creates its own throwaway Space (roomless by default, so mail lands as
-# Design-mode context — pass WITH_ROOM=1 to test the routed-inbox path
-# instead) for the test (so it never touches real seed data) and deletes it
-# again when done, unless KEEP_SPACE=1.
+# Creates its own throwaway Space (roomless by default — pass WITH_ROOM=1 to
+# also test that mail gets assigned to a Room) for the test (so it never
+# touches real seed data) and deletes it again when done, unless
+# KEEP_SPACE=1.
 #
 # Usage: ./scripts/test_stalwart_mail.sh
-#        WITH_ROOM=1 ./scripts/test_stalwart_mail.sh   # test the routed-inbox path instead
+#        WITH_ROOM=1 ./scripts/test_stalwart_mail.sh   # also test Room assignment
 #        EML_FILE=~/Downloads/some-message.eml ./scripts/test_stalwart_mail.sh
 #          # send a real downloaded email (Gmail: message -> "Download message",
 #          # or "Show original" -> "Download original") instead of the synthetic
@@ -92,7 +92,7 @@ if [ "$WITH_ROOM" = "1" ]; then
     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
     -d '{"name":"Inkorg"}' >/dev/null
 else
-  echo "==> WITH_ROOM=0: leaving space roomless (mail should land as Design-mode context instead of being routed)"
+  echo "==> WITH_ROOM=0: leaving space roomless (mail should still land in the space's inbox, just without a Room assigned)"
 fi
 
 if [ -n "$EML_FILE" ]; then
@@ -158,13 +158,11 @@ fi
 echo "==> Waiting ${POLL_WAIT}s for the poller to pick it up"
 sleep "$POLL_WAIT"
 
-if [ "$WITH_ROOM" = "1" ]; then
-  RESULT_ENDPOINT="$APP_URL/api/v1/spaces/$SPACE_ID/inbox"
-  RESULT_LABEL="inbox"
-else
-  RESULT_ENDPOINT="$APP_URL/api/v1/spaces/$SPACE_ID/context-mails"
-  RESULT_LABEL="context mails"
-fi
+# Design mode's context-mails endpoint and Kör mode's inbox endpoint now
+# return the same set for a space, so either works here — use /inbox since
+# it's the canonical one.
+RESULT_ENDPOINT="$APP_URL/api/v1/spaces/$SPACE_ID/inbox"
+RESULT_LABEL="inbox"
 
 result_json() {
   curl -sf "$RESULT_ENDPOINT" -H "Authorization: Bearer $TOKEN"

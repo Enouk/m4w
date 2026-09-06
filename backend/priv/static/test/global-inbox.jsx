@@ -17,7 +17,7 @@ const GlobalInboxRow = ({ m, spaceName, roomName, onOpenMail }) => (
   </li>
 );
 
-const GlobalUnroutedRow = ({ m, spaces, onAssign, onOpenMail }) => (
+const GlobalUnroutedRow = ({ m, spaces, onAssign, onDelete, onOpenMail }) => (
   <li className="classify-row">
     <div className="classify-row-main" onClick={() => onOpenMail(m)} style={{ cursor: "pointer" }}>
       <div className="classify-from">{m.from}</div>
@@ -48,6 +48,13 @@ const GlobalUnroutedRow = ({ m, spaces, onAssign, onOpenMail }) => (
         >
           Ingen process
         </button>
+        <button
+          type="button"
+          className="btn btn--small btn--danger"
+          onClick={() => onDelete(m.id)}
+        >
+          Ta bort
+        </button>
       </div>
     </div>
   </li>
@@ -71,6 +78,12 @@ const GlobalInboxView = ({ spacesById, roomsById, onOpenMail, onCountsChanged })
 
   const assign = (mailId, spaceId) =>
     window.API.unclassified.assign(mailId, spaceId).then(() => {
+      load();
+      onCountsChanged();
+    });
+
+  const remove = (mailId) =>
+    window.API.unclassified.delete(mailId).then(() => {
       load();
       onCountsChanged();
     });
@@ -137,6 +150,7 @@ const GlobalInboxView = ({ spacesById, roomsById, onOpenMail, onCountsChanged })
                 m={m}
                 spaces={Object.values(spacesById)}
                 onAssign={assign}
+                onDelete={remove}
                 onOpenMail={onOpenMail}
               />
             ))}

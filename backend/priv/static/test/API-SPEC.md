@@ -160,6 +160,8 @@ GET    /inbox                                          -> { routed: Mail[], uncl
 GET    /unclassified                                   -> Mail[]
 POST   /unclassified/:mailId/assign                    { spaceId: string | null } -> Mail
        // spaceId=null -> markeras "ingen process", tas bort ur triage-kön
+DELETE /unclassified/:mailId                           -> 204
+       // raderar mailet permanent; 403 om det redan routats
 ```
 
 ### Processer (org-övergripande processkarta — härledd, read-only)

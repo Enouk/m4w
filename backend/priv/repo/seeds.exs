@@ -1254,7 +1254,6 @@ Seed.Helpers.mail!(bokforing, nil, %{
   from: "Telia AB",
   subject: "Faktura 2024-118 · 4 200 kr",
   at: Seed.Helpers.ago(0, 13, 56),
-  purpose: "context",
   use: true
 })
 
@@ -1262,7 +1261,6 @@ Seed.Helpers.mail!(bokforing, nil, %{
   from: "Företagshälsan",
   subject: "Faktura 2024-119 · 8 750 kr",
   at: Seed.Helpers.ago(0, 14, 39),
-  purpose: "context",
   use: true
 })
 
@@ -1270,7 +1268,6 @@ Seed.Helpers.mail!(bokforing, nil, %{
   from: "AWS Billing",
   subject: "Invoice 2024-117 · $1,940.00",
   at: Seed.Helpers.ago(1, 1, 10),
-  purpose: "context",
   use: true
 })
 
@@ -1278,7 +1275,6 @@ Seed.Helpers.mail!(bokforing, nil, %{
   from: "Klarna for Business",
   subject: "Faktura 2024-115 · 1 290 kr",
   at: Seed.Helpers.ago(3),
-  purpose: "context",
   use: true
 })
 
@@ -1286,7 +1282,6 @@ Seed.Helpers.mail!(bokforing, nil, %{
   from: "Marcus (CFO)",
   subject: "Re: ny rutin för avvikelser",
   at: Seed.Helpers.ago(4),
-  purpose: "context",
   use: false
 })
 
@@ -1294,7 +1289,6 @@ Seed.Helpers.mail!(bokforing, nil, %{
   from: "Fortnox Support",
   subject: "Re: API-nyckel förnyad",
   at: Seed.Helpers.ago(5),
-  purpose: "context",
   use: false
 })
 

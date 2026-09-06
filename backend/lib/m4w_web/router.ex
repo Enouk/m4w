@@ -66,6 +66,7 @@ defmodule M4wWeb.Router do
     get "/inbox", GlobalInboxController, :index
     get "/unclassified", GlobalInboxController, :unclassified
     post "/unclassified/:mailId/assign", GlobalInboxController, :assign
+    delete "/unclassified/:mailId", GlobalInboxController, :delete
 
     get "/contacts", ContactController, :global_index
 

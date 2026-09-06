@@ -4,6 +4,7 @@ defmodule M4wWeb.Ops.GlobalInboxController do
   action_fallback M4wWeb.Ops.FallbackController
 
   alias M4w.Ops
+  alias M4w.Ops.Mail
   alias M4wWeb.Ops.MailJSON
 
   def index(conn, _params) do
@@ -29,6 +30,18 @@ defmodule M4wWeb.Ops.GlobalInboxController do
       conn |> put_view(json: MailJSON) |> render(:show, mail: mail)
     end
   end
+
+  def delete(conn, %{"mailId" => mail_id}) do
+    mail = Ops.get_mail!(mail_id)
+
+    with :ok <- ensure_unclassified(mail),
+         {:ok, _mail} <- Ops.delete_mail(mail) do
+      send_resp(conn, :no_content, "")
+    end
+  end
+
+  defp ensure_unclassified(%Mail{status: "unclassified"}), do: :ok
+  defp ensure_unclassified(_mail), do: {:error, :forbidden}
 
   defp authorize_target(_conn, nil), do: :ok
 

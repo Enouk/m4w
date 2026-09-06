@@ -166,7 +166,8 @@
   };
   const unclassified = {
     list: () => get("/unclassified").then(data),
-    assign: (mailId, spaceId) => post(`/unclassified/${mailId}/assign`, { spaceId }).then(data)
+    assign: (mailId, spaceId) => post(`/unclassified/${mailId}/assign`, { spaceId }).then(data),
+    delete: (mailId) => del(`/unclassified/${mailId}`)
   };
 
   // ---------- Processes (derived, read-only) ----------
