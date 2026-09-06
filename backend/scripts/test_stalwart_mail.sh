@@ -6,12 +6,13 @@
 # still "in design", so inbound mail is captured as context instead of
 # being routed).
 #
-# Creates its own throwaway Space (+ Room, unless WITH_ROOM=0) for the test
-# (so it never touches real seed data) and deletes them again when done,
-# unless KEEP_SPACE=1.
+# Creates its own throwaway Space (roomless by default, so mail lands as
+# Design-mode context — pass WITH_ROOM=1 to test the routed-inbox path
+# instead) for the test (so it never touches real seed data) and deletes it
+# again when done, unless KEEP_SPACE=1.
 #
 # Usage: ./scripts/test_stalwart_mail.sh
-#        WITH_ROOM=0 ./scripts/test_stalwart_mail.sh   # test the context-mail path instead
+#        WITH_ROOM=1 ./scripts/test_stalwart_mail.sh   # test the routed-inbox path instead
 #
 # Override any of these via env vars, e.g.:
 #   LOGIN_EMAIL=sara@ahlenkonsult.se ./scripts/test_stalwart_mail.sh
@@ -32,7 +33,7 @@ SUBJECT="${SUBJECT:-Stalwart test $(date +%s)}"
 BODY="${BODY:-Testing the Stalwart -> m4w inbound mail integration.}"
 POLL_WAIT="${POLL_WAIT:-12}"
 KEEP_SPACE="${KEEP_SPACE:-1}"
-WITH_ROOM="${WITH_ROOM:-1}"
+WITH_ROOM="${WITH_ROOM:-0}"
 STALWART_URL="${STALWART_URL:-http://localhost:8080}"
 STALWART_USER="${STALWART_USER:-admin@m4w.local}"
 STALWART_PASSWORD="${STALWART_PASSWORD:-app_aaaaaamls0axqze3ks0oidx3a0jwdwlrmuaq}"
