@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Sends a real email through the Stalwart mail server and checks that
-# M4w.Mail.StalwartPoller picked it up and routed it into a Space's inbox.
+# M4w.Mail.StalwartPoller picked it up and routed it — into a Space's inbox
+# if the space has a Room, or into its Design-mode context mail list if it
+# doesn't (see M4w.Ops.create_inbound_mail/1: a Space with no Rooms yet is
+# still "in design", so inbound mail is captured as context instead of
+# being routed).
 #
-# Creates its own throwaway Space + Room for the test (so it never touches
-# real seed data) and deletes them again when done, unless KEEP_SPACE=1.
+# Creates its own throwaway Space (+ Room, unless WITH_ROOM=0) for the test
+# (so it never touches real seed data) and deletes them again when done,
+# unless KEEP_SPACE=1.
 #
 # Usage: ./scripts/test_stalwart_mail.sh
+#        WITH_ROOM=0 ./scripts/test_stalwart_mail.sh   # test the context-mail path instead
 #
 # Override any of these via env vars, e.g.:
 #   LOGIN_EMAIL=sara@ahlenkonsult.se ./scripts/test_stalwart_mail.sh
@@ -26,6 +32,7 @@ SUBJECT="${SUBJECT:-Stalwart test $(date +%s)}"
 BODY="${BODY:-Testing the Stalwart -> m4w inbound mail integration.}"
 POLL_WAIT="${POLL_WAIT:-12}"
 KEEP_SPACE="${KEEP_SPACE:-1}"
+WITH_ROOM="${WITH_ROOM:-1}"
 STALWART_URL="${STALWART_URL:-http://localhost:8080}"
 STALWART_USER="${STALWART_USER:-admin@m4w.local}"
 STALWART_PASSWORD="${STALWART_PASSWORD:-app_aaaaaamls0axqze3ks0oidx3a0jwdwlrmuaq}"
@@ -62,10 +69,14 @@ curl -sf -X PATCH "$APP_URL/api/v1/spaces/$SPACE_ID" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d "{\"address\":\"$MAIL_ADDRESS\"}" >/dev/null
 
-echo "==> Adding a room so inbound mail has somewhere to route to"
-curl -sf -X POST "$APP_URL/api/v1/spaces/$SPACE_ID/rooms" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"Inkorg"}' >/dev/null
+if [ "$WITH_ROOM" = "1" ]; then
+  echo "==> Adding a room so inbound mail has somewhere to route to"
+  curl -sf -X POST "$APP_URL/api/v1/spaces/$SPACE_ID/rooms" \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d '{"name":"Inkorg"}' >/dev/null
+else
+  echo "==> WITH_ROOM=0: leaving space roomless (mail should land as Design-mode context instead of being routed)"
+fi
 
 echo "==> Sending test email to $MAIL_ADDRESS via $SMTP_HOST:$SMTP_PORT"
 python3 - "$SMTP_HOST" "$SMTP_PORT" "$FROM_ADDRESS" "$MAIL_ADDRESS" "$SUBJECT" "$BODY" <<'PY'
@@ -86,14 +97,22 @@ PY
 echo "==> Waiting ${POLL_WAIT}s for the poller to pick it up"
 sleep "$POLL_WAIT"
 
-inbox_json() {
-  curl -sf "$APP_URL/api/v1/spaces/$SPACE_ID/inbox" -H "Authorization: Bearer $TOKEN"
+if [ "$WITH_ROOM" = "1" ]; then
+  RESULT_ENDPOINT="$APP_URL/api/v1/spaces/$SPACE_ID/inbox"
+  RESULT_LABEL="inbox"
+else
+  RESULT_ENDPOINT="$APP_URL/api/v1/spaces/$SPACE_ID/context-mails"
+  RESULT_LABEL="context mails"
+fi
+
+result_json() {
+  curl -sf "$RESULT_ENDPOINT" -H "Authorization: Bearer $TOKEN"
 }
 
-RESULT="$(inbox_json)"
+RESULT="$(result_json)"
 
 if [ "$(echo "$RESULT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["data"]))')" = "0" ]; then
-  echo "==> Not in Inbox yet — checking whether Stalwart filed it as spam"
+  echo "==> Not in $RESULT_LABEL yet — checking whether Stalwart filed it as spam"
   RESCUE_OUTPUT="$(python3 - "$STALWART_URL" "$STALWART_USER" "$STALWART_PASSWORD" "$SUBJECT" <<'PY'
 import base64
 import json
@@ -189,12 +208,12 @@ PY
     echo "==> Moved it from spam to Inbox so the poller can import it"
     echo "==> Waiting ${POLL_WAIT}s for the poller to pick up the rescued mail"
     sleep "$POLL_WAIT"
-    RESULT="$(inbox_json)"
+    RESULT="$(result_json)"
     ;;
   esac
 fi
 
-echo "==> Space $SPACE_ID inbox:"
+echo "==> Space $SPACE_ID $RESULT_LABEL:"
 echo "$RESULT" | python3 -m json.tool
 
 if [ "$KEEP_SPACE" = "1" ]; then

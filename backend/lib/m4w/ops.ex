@@ -296,7 +296,13 @@ defmodule M4w.Ops do
     classified =
       case space && list_rooms(space) do
         [] ->
-          %{"status" => "unclassified", "reason" => "inga rum konfigurerade i spacet"}
+          %{
+            "space_id" => space.id,
+            "status" => "unclassified",
+            "purpose" => "context",
+            "use" => true,
+            "reason" => "inga rum konfigurerade i spacet"
+          }
 
         nil ->
           %{"status" => "unclassified", "reason" => "ingen matchande Space-adress"}
