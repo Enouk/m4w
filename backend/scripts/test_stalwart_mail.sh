@@ -33,6 +33,11 @@
 # the message to Inbox itself (via JMAP, using STALWART_USER/PASSWORD) so
 # the test still completes without manual intervention.
 set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+if [ -f .env ]; then
+  # shellcheck disable=SC1091
+  set -a && source .env && set +a
+fi
 
 APP_URL="${APP_URL:-http://localhost:4000}"
 SMTP_HOST="${SMTP_HOST:-localhost}"
@@ -45,8 +50,9 @@ POLL_WAIT="${POLL_WAIT:-12}"
 KEEP_SPACE="${KEEP_SPACE:-1}"
 WITH_ROOM="${WITH_ROOM:-0}"
 STALWART_URL="${STALWART_URL:-http://localhost:8080}"
-STALWART_USER="${STALWART_USER:-admin@m4w.local}"
-STALWART_PASSWORD="${STALWART_PASSWORD:-app_aaaaaamls0axqze3ks0oidx3a0jwdwlrmuaq}"
+# Defaults to the JMAP app password ./scripts/bootstrap_stalwart.sh wrote to .env.
+STALWART_USER="${STALWART_USER:-${STALWART_JMAP_USER:-}}"
+STALWART_PASSWORD="${STALWART_PASSWORD:-${STALWART_JMAP_PASSWORD:-}}"
 EML_FILE="${EML_FILE:-}"
 
 if [ -n "$EML_FILE" ] && [ ! -f "$EML_FILE" ]; then
@@ -131,7 +137,11 @@ if "Message-ID" in msg:
 else:
     msg["Message-ID"] = email.utils.make_msgid()
 
-with smtplib.SMTP(smtp_host, int(smtp_port), timeout=10) as smtp:
+# local_hostname pins the EHLO argument instead of letting smtplib call
+# socket.getfqdn(): on machines where that returns a trailing-dot name (many
+# WSL2/Linux setups do), Stalwart's EHLO stage takes ~12s per connection
+# (a DNS-lookup timeout triggered specifically by the trailing dot).
+with smtplib.SMTP(smtp_host, int(smtp_port), timeout=10, local_hostname="m4w-test-client.invalid") as smtp:
     smtp.sendmail(from_addr, [to_addr], msg.as_bytes())
 
 print(unique_subject)
@@ -150,7 +160,7 @@ msg["Subject"] = subject
 msg["From"] = from_addr
 msg["To"] = to_addr
 
-with smtplib.SMTP(smtp_host, int(smtp_port), timeout=10) as smtp:
+with smtplib.SMTP(smtp_host, int(smtp_port), timeout=10, local_hostname="m4w-test-client.invalid") as smtp:
     smtp.sendmail(from_addr, [to_addr], msg.as_string())
 PY
 fi

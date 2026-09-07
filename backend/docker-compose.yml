@@ -31,11 +31,11 @@ services:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
       DATABASE_NAME: m4w_dev
-      # Filled in after the one-time Stalwart setup (see README): create an
-      # account, a catch-all alias for its domain, and an App Password for it.
+      # Filled in by `./scripts/bootstrap_stalwart.sh` (see README) after it
+      # provisions the mail server — no manual GUI setup needed.
       STALWART_JMAP_URL: http://mailserver:8080
-      STALWART_JMAP_USER: admin@m4w.local
-      STALWART_JMAP_PASSWORD: app_aaaaaamls0axqze3ks0oidx3a0jwdwlrmuaq
+      STALWART_JMAP_USER: ${STALWART_JMAP_USER:-}
+      STALWART_JMAP_PASSWORD: ${STALWART_JMAP_PASSWORD:-}
     ports:
       - "4000:4000"
     volumes:
@@ -53,17 +53,29 @@ services:
   mailserver:
     image: stalwartlabs/stalwart:v0.16
     restart: unless-stopped
-    # No STALWART_RECOVERY_ADMIN here: in this version it doesn't wire up to
-    # the setup wizard's login screen. Read the one-time generated admin
-    # password from the logs instead (see README) — only needed once, for
-    # the initial setup wizard.
+    environment:
+      # Pins a recovery admin login so `./scripts/bootstrap_stalwart.sh` (and
+      # you, if something breaks) can always authenticate over the
+      # management API, even before/without the normal admin account. Fine
+      # to leave set permanently on this local-only dev instance; see
+      # https://stalw.art/docs/configuration/recovery-mode/ for why
+      # upstream advises against that in production.
+      STALWART_RECOVERY_ADMIN: admin:${STALWART_ADMIN_PASSWORD:?Set STALWART_ADMIN_PASSWORD in backend/.env}
     ports:
       - "8080:8080" # Admin UI + JMAP
       - "25:25" # SMTP (unauthenticated, for sending test mail between containers)
       - "587:587" # SMTP submission (authenticated, for sending test mail from the host)
     volumes:
-      - stalwart_etc:/opt/stalwart/etc
-      - stalwart_data:/opt/stalwart/data
+      # NB: these paths are where this image actually reads/writes config
+      # and data (`docker inspect stalwartlabs/stalwart:v0.16` shows
+      # `Cmd: ["--config", "/etc/stalwart/config.json"]` and
+      # `Volumes: ["/etc/stalwart", "/var/lib/stalwart"]`) — not
+      # `/opt/stalwart/*`, which some older guides reference. Mounting the
+      # wrong path silently no-ops: the container falls back to an
+      # anonymous volume, so state still persists across a plain `restart`
+      # but quietly resets on every recreate.
+      - stalwart_etc:/etc/stalwart
+      - stalwart_data:/var/lib/stalwart
 
 volumes:
   app_deps:

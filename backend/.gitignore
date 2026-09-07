@@ -36,3 +36,10 @@ npm-debug.log
 /assets/node_modules/
 
 /db/data/*
+
+# Local secrets (Stalwart admin password, generated JMAP app password).
+# See .env.example.
+/.env
+
+# Downloaded by ./scripts/bootstrap_stalwart.sh (stalwart-cli binary).
+/.cache/

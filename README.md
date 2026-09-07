@@ -17,59 +17,21 @@ This starts three services:
 - **`app`** — the Phoenix app, `http://localhost:4000` (runs migrations + seeds on first boot)
 - **`mailserver`** — Stalwart, admin UI + JMAP on `http://localhost:8080`, SMTP on `25`/`587`
 
-`db` and `app` need nothing further — they come up and seed themselves. **Stalwart needs a one-time manual setup** (see below) before mail actually flows, because it ships with no configuration and has no non-interactive bootstrap.
+`db` and `app` need nothing further — they come up and seed themselves. **Stalwart needs a one-time setup** (see below) before mail actually flows.
 
 ## One-time Stalwart setup
 
-Do this once per fresh `stalwart_etc`/`stalwart_data` volume (i.e. once per `docker compose down -v`, not on every `docker compose up`).
-
-### 1. Log in with the bootstrap password
-
 ```bash
-docker compose logs mailserver | grep -A8 'bootstrap mode'
-```
-
-This prints a temporary `admin` / `<random password>`. Go to **`http://localhost:8080/admin`** (the bare path — deep-linking straight to `/admin/login` skips a redirect the login flow needs and it'll fail with a confusing "you have to authenticate first" error) and sign in with those credentials.
-
-### 2. Run the setup wizard
-
-Hostname, domain (e.g. `m4w.local`), storage backend, directory type, log destination — defaults are fine for local dev. On the certificate/TLS step:
-
-- **Turn OFF "Automatically Obtain TLS Certificate"**. It tries to get a real Let's Encrypt certificate via ACME, which will fail for a non-public domain like `m4w.local` (`Domain name does not end with a valid public suffix`) and silently prevents the wizard from saving anything.
-- Leave "Generate Email Signing Keys" (DKIM) on — harmless and unrelated.
-
-At the end it generates a **permanent** admin account/password. Write it down — it's shown once.
-
-### 3. Restart Stalwart to apply the config
-
-```bash
-docker compose restart mailserver
-```
-
-Log back in with the permanent admin credentials from step 2.
-
-### 4. Add a catch-all for the domain
-
-Any Space's `address` needs to actually be reachable at the domain you set up. Rather than provisioning a mailbox per Space, route everything into one mailbox: **Domains → (your domain) → Email section → "Catch-All Address"** → set it to your admin account's address (e.g. `admin@m4w.local`). From then on, any `something@m4w.local` you set as a Space's `address` will be delivered there, and our poller reads the `To:` header per message to route it correctly — no per-Space mailbox needed.
-
-### 5. Create an App Password
-
-**Accounts → (your account) → App Passwords** → create one. This is what the poller authenticates with — don't use the real admin password for it.
-
-### 6. Wire the credentials in
-
-In `backend/docker-compose.yml`, set on the `app` service:
-
-```yaml
-STALWART_JMAP_USER: admin@m4w.local        # the account from step 2
-STALWART_JMAP_PASSWORD: <the App Password from step 5>
-```
-
-Then:
-
-```bash
+cd backend
+./scripts/bootstrap_stalwart.sh
 docker compose up -d app
 ```
+
+This fully replaces clicking through Stalwart's setup wizard, using its [declarative-deployment mechanism](https://stalw.art/docs/configuration/declarative-deployments/): it creates `backend/.env` (gitignored — see `.env.example`) with a random admin password if one doesn't exist yet, then drives Stalwart's management API to set the hostname/domain, disable ACME (a real Let's Encrypt cert can't be issued for a non-public domain like `m4w.local`), generate DKIM keys, add a catch-all address for the domain (so any `something@m4w.local` you set as a Space's `address` is delivered without provisioning a mailbox per Space — our poller reads the `To:` header per message to route it), and mint a JMAP app password — writing `STALWART_JMAP_USER`/`STALWART_JMAP_PASSWORD` into `.env` for the `app` service to pick up.
+
+Safe to re-run: if Stalwart is already bootstrapped it's a no-op. Do this once per fresh `stalwart_etc`/`stalwart_data` volume (i.e. once per `docker compose down -v`, not on every `docker compose up`) — Stalwart's permanent admin password, like the wizard's, is generated server-side and shown once, so a re-run can't recover it if `.env` gets wiped; in that case wipe the volumes and start over (`docker compose down -v && ./scripts/bootstrap_stalwart.sh`).
+
+If you'd rather do it by hand, the admin UI is still there at `http://localhost:8080/admin` — `docker compose logs mailserver | grep -A8 'bootstrap mode'` prints the temporary login (deep-linking straight to `/admin/login` skips a redirect the login flow needs and fails with a confusing "you have to authenticate first" error, so start at the bare `/admin` path).
 
 `M4w.Mail.StalwartPoller` (see `backend/lib/m4w/mail/`) starts automatically whenever `STALWART_JMAP_URL` is set, polls Stalwart's Inbox over JMAP every 10s (`STALWART_POLL_INTERVAL_MS`), and feeds new mail into `M4w.Ops.create_inbound_mail/1` — the same path `POST /api/v1/inbound-mail` uses.
 
@@ -84,6 +46,7 @@ This creates a throwaway Space + Room, sends a real email through Stalwart, wait
 
 ## Troubleshooting
 
-- **`docker logs backend-mailserver-1` looks frozen after setup**: expected — Stalwart's log destination is chosen during the wizard and typically isn't stdout once configured. Use the admin UI or JMAP directly to check state instead of `docker logs`.
+- **`docker logs backend-mailserver-1` looks frozen after setup**: expected — Stalwart's log destination is chosen during bootstrap and typically isn't stdout once configured. Use the admin UI or JMAP/`stalwart-cli` directly to check state instead of `docker logs`.
 - **App keeps logging `StalwartPoller: could not establish a JMAP session` / `Req.TransportError: socket closed`**: Stalwart's brute-force protection has likely blocked the `app` container's IP (this happens easily during setup, before real credentials exist). Check **Security → Blocked IP addresses** in the admin UI and remove the entry for the `app` container's IP (find it with `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' backend-app-1`), and consider adding it (or the whole `172.18.0.0/16`-style subnet) to **Allowed IP addresses**. Restart `mailserver` afterward — the ban state doesn't always clear until it does.
 - **Mail never shows up in a Space's inbox**: check whether it landed in Junk instead (admin UI, or `./scripts/test_stalwart_mail.sh` which does this automatically) — the poller only watches Inbox.
+- **Mail server state disappears after `docker compose down` (without `-v`) + `up`**: this image reads/writes `/etc/stalwart` and `/var/lib/stalwart`, not `/opt/stalwart/*` (some older guides reference that path). If `docker-compose.yml`'s `mailserver` volumes ever get pointed at the wrong path again, Docker silently falls back to an anonymous volume — state survives a plain `restart` but resets on every recreate, and `docker compose logs mailserver` will show `Server started in bootstrap mode` / `No configuration file was found` even though you already ran the setup.
