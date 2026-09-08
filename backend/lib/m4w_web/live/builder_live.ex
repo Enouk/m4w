@@ -1,6 +1,7 @@
 defmodule M4wWeb.BuilderLive do
   use M4wWeb, :live_view
 
+  alias M4w.Design
   alias M4w.World
   alias M4w.World.{Door, DoorKey, Goal, Key, Room, Space}
 
@@ -8,16 +9,13 @@ defmodule M4wWeb.BuilderLive do
   def mount(_params, _session, socket) do
     spaces = World.list_recent_spaces()
     selected_space = List.first(spaces)
-    selected_room = first_room(selected_space)
 
     socket =
       socket
       |> assign(:goal_form, to_form(World.change_goal(%Goal{})))
-      |> assign(:selected_space, selected_space)
-      |> assign(:selected_room, selected_room)
-      |> assign_room_instruction_form(selected_room)
+      |> assign(:designing?, false)
       |> stream(:spaces, spaces)
-      |> stream(:selected_rooms, rooms_for(selected_space))
+      |> select_space(selected_space)
 
     {:ok, socket}
   end
@@ -35,25 +33,12 @@ defmodule M4wWeb.BuilderLive do
   def handle_event("create_space", %{"goal" => goal_params}, socket) do
     goal_params = clean_goal_params(goal_params)
 
-    case World.create_space_from_goal(goal_params) do
-      {:ok, space} ->
-        spaces = World.list_recent_spaces()
+    socket =
+      socket
+      |> assign(:designing?, true)
+      |> start_async(:design_space, fn -> World.design_space_from_goal(goal_params) end)
 
-        socket =
-          socket
-          |> put_flash(:info, "Ny serie skapad från ditt goal.")
-          |> assign(:goal_form, to_form(World.change_goal(%Goal{})))
-          |> select_space(space)
-          |> stream(:spaces, spaces, reset: true)
-
-        {:noreply, socket}
-
-      {:error, :goal, changeset} ->
-        {:noreply, assign(socket, :goal_form, to_form(%{changeset | action: :insert}))}
-
-      {:error, _operation, _changeset} ->
-        {:noreply, put_flash(socket, :error, "Kunde inte skapa serien just nu.")}
-    end
+    {:noreply, socket}
   end
 
   def handle_event("select_space", %{"id" => id}, socket) do
@@ -101,12 +86,68 @@ defmodule M4wWeb.BuilderLive do
     end
   end
 
+  @impl true
+  def handle_async(:design_space, {:ok, result}, socket) do
+    case result do
+      {:ok, space, generation, :designed} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, design_flash_message(generation))
+         |> finish_design(space)}
+
+      {:ok, space, generation, :fallback} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, fallback_flash_message(generation))
+         |> finish_design(space)}
+
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> assign(:designing?, false)
+         |> assign(:goal_form, to_form(%{changeset | action: :insert}))}
+
+      {:error, _operation, _changeset, _generation} ->
+        {:noreply,
+         socket
+         |> assign(:designing?, false)
+         |> put_flash(:error, "Kunde inte skapa serien just nu.")}
+    end
+  end
+
+  def handle_async(:design_space, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:designing?, false)
+     |> put_flash(:error, "Kunde inte skapa serien just nu (#{inspect(reason)}).")}
+  end
+
+  defp finish_design(socket, space) do
+    spaces = World.list_recent_spaces()
+
+    socket
+    |> assign(:goal_form, to_form(World.change_goal(%Goal{})))
+    |> assign(:designing?, false)
+    |> select_space(space)
+    |> stream(:spaces, spaces, reset: true)
+  end
+
+  defp design_flash_message(generation) do
+    "Claude designade serien (#{generation.input_tokens} in- / #{generation.output_tokens} " <>
+      "ut-tokens, ~$#{Decimal.to_string(generation.cost_usd)})."
+  end
+
+  defp fallback_flash_message(generation) do
+    "Claude kunde inte designa serien just nu (#{generation.error}) — använde standardmallen istället."
+  end
+
   defp select_space(socket, %Space{} = space) do
     selected_room = first_room(space)
 
     socket
     |> assign(:selected_space, space)
     |> assign(:selected_room, selected_room)
+    |> assign(:design_cost, Design.total_cost_for_space(space.id))
     |> assign_room_instruction_form(selected_room)
     |> stream(:selected_rooms, rooms_for(space), reset: true)
   end
@@ -115,6 +156,7 @@ defmodule M4wWeb.BuilderLive do
     socket
     |> assign(:selected_space, nil)
     |> assign(:selected_room, nil)
+    |> assign(:design_cost, nil)
     |> assign_room_instruction_form(nil)
     |> stream(:selected_rooms, [], reset: true)
   end
@@ -140,7 +182,6 @@ defmodule M4wWeb.BuilderLive do
     )
   end
 
-  defp first_room(nil), do: nil
   defp first_room(%Space{} = space), do: List.first(rooms_for(space))
 
   defp rooms_for(nil), do: []
@@ -291,6 +332,14 @@ defmodule M4wWeb.BuilderLive do
   defp series_pitch(%Space{description: ""}), do: "En arbetsserie byggd från ditt goal."
   defp series_pitch(%Space{description: description}), do: description
 
+  defp design_cost_label(nil), do: nil
+
+  defp design_cost_label(cost) do
+    if Decimal.compare(cost, 0) == :gt do
+      "~$#{Decimal.to_string(Decimal.round(cost, 4))}"
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -334,6 +383,10 @@ defmodule M4wWeb.BuilderLive do
                     />
                   </div>
                 </div>
+                <p :if={design_cost_label(@design_cost)} class="mt-3 text-xs text-zinc-400">
+                  <.icon name="hero-sparkles" class="size-3.5 text-red-400" />
+                  Designkostnad: {design_cost_label(@design_cost)}
+                </p>
               </div>
 
               <div :if={!@selected_space} id="empty-series-hero">
@@ -382,9 +435,14 @@ defmodule M4wWeb.BuilderLive do
                 <button
                   id="generate-goal-button"
                   type="submit"
-                  class="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-red-950/30 transition duration-200 hover:bg-red-500 focus:outline-none focus:ring-4 focus:ring-red-500/25 phx-submit-loading:opacity-70"
+                  disabled={@designing?}
+                  class="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-red-950/30 transition duration-200 hover:bg-red-500 focus:outline-none focus:ring-4 focus:ring-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <.icon name="hero-play-solid" class="size-4" /> Skapa serie
+                  <.icon
+                    name={if @designing?, do: "hero-sparkles", else: "hero-play-solid"}
+                    class={["size-4", @designing? && "animate-pulse"]}
+                  />
+                  {if @designing?, do: "Claude designar…", else: "Skapa serie"}
                 </button>
               </.form>
             </div>

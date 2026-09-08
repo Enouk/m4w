@@ -2,8 +2,10 @@ defmodule M4w.Ops do
   @moduledoc """
   The Ops context — backs the M4W REST API described in API-SPEC.md.
 
-  Independent of `M4w.World` (which powers the separate MUD-builder LiveView);
-  the two share no tables.
+  Independent of `M4w.World` (which powers the separate MUD-builder LiveView)
+  — the two share no domain tables. Both do share `M4w.Design`'s
+  `design_generations` audit log, which attributes rows to either a World
+  Goal or an Ops Space.
   """
 
   import Ecto.Query, warn: false
@@ -21,6 +23,7 @@ defmodule M4w.Ops do
     OutboxMessage,
     Passage,
     Room,
+    RoomBlueprintSchema,
     Space,
     User,
     UserSpace,
@@ -372,14 +375,111 @@ defmodule M4w.Ops do
     mail |> Mail.changeset(attrs) |> Repo.update()
   end
 
-  # ---------------- Design-mode generation (AI stand-in) ----------------
+  # ---------------- Design-mode generation ----------------
+  #
+  # Asks M4w.Design to design a Room pipeline from the Space's goal (plus
+  # any mail marked `use: true` as context). Never persists — the frontend
+  # diffs the returned drafts against what's persisted and upserts via the
+  # regular Room CRUD endpoints (see DesignView.jsx `saveToRun`). Falls back
+  # to the fixed `synthesize_rooms/1` template if the provider fails, isn't
+  # configured, or returns something unusable.
 
-  def generate_rooms(%Space{} = space) do
+  def generate_rooms(%Space{} = space, opts \\ []) do
     case list_rooms(space) do
-      [] -> synthesize_rooms(space)
+      [] -> ai_generate_rooms(space, opts)
       rooms -> rooms
     end
   end
+
+  defp ai_generate_rooms(%Space{} = space, opts) do
+    request = design_request(space)
+    opts = Keyword.put(opts, :ops_space_id, space.id)
+
+    case M4w.Design.generate_blueprint(request, opts) do
+      {:ok, blueprint, _generation} ->
+        case blueprint_to_room_drafts(blueprint) do
+          [] -> synthesize_rooms(space)
+          drafts -> drafts
+        end
+
+      {:error, _reason, _generation} ->
+        synthesize_rooms(space)
+    end
+  end
+
+  defp design_request(%Space{} = space) do
+    %{
+      system_prompt: design_system_prompt(),
+      user_prompt: design_user_prompt(space),
+      tool_name: "emit_room_blueprint",
+      tool_description: "Emit the designed Room pipeline for this Space.",
+      schema: RoomBlueprintSchema.schema()
+    }
+  end
+
+  defp design_system_prompt do
+    """
+    Du designar en pipeline av Rooms för ett Space i "MUD for Work": varje \
+    Room är en station där en typ av arbete sker innan det flyttas vidare. \
+    Rummen bildar en ordnad kedja, först till sist. Varje Room har ett namn, \
+    vem eller vad som arbetar där (entity_kind: ai/human/mixed + \
+    entity_label), ett subgoal (vad som måste vara sant för att rummets \
+    arbete ska anses klart) och en key (ett kort, läsbart villkor för när \
+    rummet öppnas, t.ex. "öppnar när underlag är komplett").
+
+    Designa minst tre och högst åtta rum som tillsammans bildar en \
+    sammanhängande, meningsfull pipeline för målet och mailkontexten du får. \
+    Skriv allt på svenska.
+
+    Svara enbart genom att anropa verktyget — inga fritextsvar.
+    """
+  end
+
+  defp design_user_prompt(%Space{} = space) do
+    goal = if space.goal in [nil, ""], do: "(inget mål angivet ännu)", else: space.goal
+
+    """
+    Space: #{space.name}
+
+    Mål: #{goal}
+
+    Mailkontext:
+    #{design_mail_context(space)}
+    """
+  end
+
+  defp design_mail_context(%Space{} = space) do
+    space
+    |> list_context_mails()
+    |> Enum.filter(& &1.use)
+    |> case do
+      [] -> "Ingen mailkontext vald."
+      mails -> mails |> Enum.map(&design_mail_context_line/1) |> Enum.join("\n")
+    end
+  end
+
+  defp design_mail_context_line(%Mail{} = mail) do
+    body = mail.body |> Enum.join(" ") |> String.slice(0, 500)
+    "- Från #{mail.from}: \"#{mail.subject}\" — #{body}"
+  end
+
+  defp blueprint_to_room_drafts(%{"rooms" => rooms}) when is_list(rooms) and rooms != [] do
+    rooms
+    |> Enum.with_index()
+    |> Enum.map(fn {room, index} ->
+      %{
+        temp_id: "-#{index + 1}",
+        name: room["name"],
+        position: index,
+        entity_kind: room["entity_kind"],
+        entity_label: room["entity_label"],
+        subgoal: room["subgoal"],
+        key: room["key"]
+      }
+    end)
+  end
+
+  defp blueprint_to_room_drafts(_blueprint), do: []
 
   defp synthesize_rooms(%Space{}) do
     [

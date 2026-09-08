@@ -1,5 +1,5 @@
-# Seeds the Ops domain (the M4W REST API backing the React prototype in
-# priv/static/test) with the same demo content the prototype's
+# Seeds the Ops domain (the M4W REST API backing the React frontend in
+# priv/static/frontend) with the same demo content the prototype's
 # spaces-data.js / auth-data.js used to hold client-side.
 #
 #     mix run priv/repo/seeds.exs

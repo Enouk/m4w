@@ -25,8 +25,8 @@ defmodule M4wWeb.Router do
   scope "/", M4wWeb do
     pipe_through :browser
 
-    live "/", BuilderLive
-    get "/test", PageController, :test_frontend
+    get "/", PageController, :frontend
+    live "/builder", BuilderLive
   end
 
   scope "/api", M4wWeb do

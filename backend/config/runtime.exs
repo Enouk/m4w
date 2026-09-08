@@ -31,6 +31,23 @@ config :m4w, :stalwart,
   jmap_password: System.get_env("STALWART_JMAP_PASSWORD"),
   poll_interval_ms: String.to_integer(System.get_env("STALWART_POLL_INTERVAL_MS", "10000"))
 
+# Space design (M4w.Design). Deliberately skipped in :test so a developer's
+# globally-exported ANTHROPIC_API_KEY can never make the test suite call a
+# paid API — M4w.Design.provider/0 falls back to the free Stub provider
+# whenever this config isn't set.
+if config_env() != :test do
+  anthropic_api_key = System.get_env("ANTHROPIC_API_KEY")
+
+  config :m4w, :design,
+    anthropic_api_key: anthropic_api_key,
+    provider:
+      if(anthropic_api_key,
+        do: M4w.Design.Providers.Anthropic,
+        else: M4w.Design.Providers.Stub
+      ),
+    model: System.get_env("DESIGN_MODEL", "claude-sonnet-5")
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

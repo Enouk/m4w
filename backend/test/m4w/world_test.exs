@@ -288,6 +288,115 @@ defmodule M4w.WorldTest do
     end
   end
 
+  describe "create_space_from_blueprint/2" do
+    test "persists a generated blueprint's rooms, doors, keys, entities, artifacts, and passages" do
+      {:ok, goal} = World.create_goal(%{title: "Lansera nyhetsbrev"})
+
+      blueprint = %{
+        "space" => %{"name" => "Nyhetsbrevsflode", "description" => "Genererat av Claude."},
+        "rooms" => [
+          %{"key" => "draft", "name" => "Utkast", "kind" => "analysis"},
+          %{"key" => "review", "name" => "Granskning", "kind" => "test"}
+        ],
+        "doors" => [
+          %{
+            "name" => "Granskningsgrind",
+            "room_a_key" => "draft",
+            "room_b_key" => "review",
+            "locked" => true,
+            "key_requirements" => [%{"key_code" => "editor_signoff"}]
+          }
+        ],
+        "keys" => [
+          %{"code" => "editor_signoff", "name" => "Redaktörsgodkännande"}
+        ],
+        "entities" => [
+          %{"name" => "Redaktör", "kind" => "human", "room_key" => "review"}
+        ],
+        "artifacts" => [
+          %{"key" => "draft_copy", "name" => "Utkaststext", "room_key" => "draft"}
+        ],
+        "passages" => [
+          %{
+            "from_room_key" => "draft",
+            "to_room_key" => "review",
+            "door_name" => "Granskningsgrind",
+            "artifact_key" => "draft_copy",
+            "used_key_code" => "editor_signoff",
+            "direction" => "forward"
+          }
+        ]
+      }
+
+      assert {:ok, %Space{} = space} = World.create_space_from_blueprint(goal, blueprint)
+      assert space.name == "Nyhetsbrevsflode"
+      assert Enum.map(space.rooms, & &1.key) |> Enum.sort() == ["draft", "review"]
+      assert Enum.map(space.doors, & &1.name) == ["Granskningsgrind"]
+      assert Enum.map(space.keys, & &1.code) == ["editor_signoff"]
+      assert Enum.map(space.artifacts, & &1.key) == ["draft_copy"]
+      assert Enum.map(space.entities, & &1.name) == ["Redaktör"]
+      assert Enum.map(space.passages, & &1.direction) == ["forward"]
+
+      [door] = space.doors
+      assert door.locked
+    end
+
+    test "rolls back and reports an unknown room reference" do
+      {:ok, goal} = World.create_goal(%{title: "Trasig blueprint"})
+
+      blueprint = %{
+        "rooms" => [%{"key" => "draft", "name" => "Utkast"}],
+        "doors" => [%{"name" => "Grind", "room_a_key" => "draft", "room_b_key" => "missing"}],
+        "keys" => [],
+        "entities" => [],
+        "artifacts" => [],
+        "passages" => []
+      }
+
+      assert {:error, {:unknown_room_key, "missing"}} =
+               World.create_space_from_blueprint(goal, blueprint)
+
+      assert World.list_goal_spaces(goal) == []
+    end
+  end
+
+  describe "design_space_from_goal/2" do
+    test "designs a space via the given provider and links the generation to it" do
+      assert {:ok, %Space{} = space, generation, :designed} =
+               World.design_space_from_goal(
+                 %{title: "Bygg en portal"},
+                 provider: M4w.Design.Providers.Stub
+               )
+
+      assert space.name == "Bygg en portal"
+      assert generation.status == "ok"
+      assert generation.space_id == space.id
+      assert Enum.map(space.rooms, & &1.key) |> Enum.sort() == ["analysis", "implementation"]
+    end
+
+    test "falls back to the default template when the provider fails" do
+      assert {:ok, %Space{} = space, generation, :fallback} =
+               World.design_space_from_goal(
+                 %{title: "Reservplan"},
+                 provider: M4w.WorldTest.FailingDesignProvider
+               )
+
+      assert generation.status == "error"
+      assert generation.space_id == space.id
+      assert Enum.map(space.rooms, & &1.name) == ["Analys", "Implementation", "Test", "Release"]
+    end
+  end
+
+  defmodule FailingDesignProvider do
+    @behaviour M4w.Design.Provider
+
+    @impl true
+    def name, do: "failing"
+
+    @impl true
+    def design(_request, _opts), do: {:error, :unavailable}
+  end
+
   describe "space JSON schema" do
     test "exposes a JSON-encodable schema for generated spaces" do
       schema = World.space_json_schema()

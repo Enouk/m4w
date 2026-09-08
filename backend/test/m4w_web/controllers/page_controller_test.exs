@@ -7,8 +7,14 @@ defmodule M4wWeb.PageControllerTest do
   alias M4w.Repo
   alias M4w.World.{Door, Goal, Key, Room, Space}
 
-  test "GET /", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
+  test "GET / serves the React frontend", %{conn: conn} do
+    conn = get(conn, ~p"/")
+
+    assert html_response(conn, 200) =~ ~s(<div id="root">)
+  end
+
+  test "GET /builder", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/builder")
 
     assert has_element?(view, "#builder-shell")
     assert has_element?(view, "#goal-builder-form")
@@ -17,7 +23,7 @@ defmodule M4wWeb.PageControllerTest do
   end
 
   test "creates a Netflix-like series with room episodes from the builder form", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/builder")
 
     assert has_element?(view, "#goal-builder-form")
 
@@ -30,9 +36,15 @@ defmodule M4wWeb.PageControllerTest do
     )
     |> render_submit()
 
+    # Space design (M4w.Design) runs asynchronously — in test env it goes
+    # through the free M4w.Design.Providers.Stub, which returns instantly,
+    # but the LiveView still needs to await the async assign before the
+    # space exists.
+    render_async(view)
+
     goal = Repo.get_by!(Goal, title: "Bygg en varldsportal")
     space = Repo.get_by!(Space, goal_id: goal.id)
-    rooms = Repo.all(from room in Room, where: room.space_id == ^space.id, order_by: room.x)
+    rooms = Repo.all(from room in Room, where: room.space_id == ^space.id, order_by: room.key)
 
     doors =
       Door
@@ -43,22 +55,15 @@ defmodule M4wWeb.PageControllerTest do
 
     keys = Repo.all(from key in Key, where: key.space_id == ^space.id, order_by: key.name)
 
-    assert length(rooms) == 4
-    assert Enum.map(rooms, & &1.name) == ["Analys", "Implementation", "Test", "Release"]
+    # M4w.Design.Providers.Stub returns a small fixed blueprint (see
+    # lib/m4w/design/providers/stub.ex) — two rooms linked by one open door,
+    # no keys.
+    assert Enum.map(rooms, & &1.key) == ["analysis", "implementation"]
+    assert Enum.map(doors, & &1.name) == ["Grind till implementation"]
+    refute Enum.any?(doors, & &1.locked)
+    assert keys == []
 
-    assert Enum.map(doors, & &1.name) == [
-             "Grind till implementation",
-             "Testgrind",
-             "Releasegrind"
-           ]
-
-    assert Enum.map(keys, & &1.name) == ["Analysbeslut", "Byggbar losning", "QA klartecken"]
-    assert Enum.all?(doors, & &1.locked)
-    assert doors |> List.first() |> Map.fetch!(:door_keys) |> List.first() |> Map.fetch!(:key)
-
-    analysis_room = List.first(rooms)
-    assert analysis_room.metadata["progress"] == 35
-    assert analysis_room.metadata["status"] == "in_progress"
+    analysis_room = Enum.find(rooms, &(&1.key == "analysis"))
 
     assert has_element?(view, "#selected-series-hero")
     assert has_element?(view, "#spaces-#{space.id}")
@@ -66,7 +71,6 @@ defmodule M4wWeb.PageControllerTest do
     assert has_element?(view, "#room-detail")
     assert has_element?(view, "#room-doors")
     assert has_element?(view, "#room-door-#{List.first(doors).id}")
-    assert has_element?(view, "#room-door-key-#{List.first(List.first(doors).door_keys).id}")
 
     view
     |> form("#room-instruction-form",

@@ -53,7 +53,156 @@ defmodule M4w.World do
   def create_space_from_goal(attrs \\ %{}) do
     Ecto.Multi.new()
     |> Ecto.Multi.insert(:goal, Goal.changeset(%Goal{}, attrs))
-    |> Ecto.Multi.insert(:space, fn %{goal: goal} ->
+    |> Ecto.Multi.merge(fn %{goal: goal} -> default_space_multi(goal) end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{space: space}} ->
+        {:ok, preload_space_workflow(space)}
+
+      {:error, operation, changeset, _changes} ->
+        {:error, operation, changeset}
+    end
+  end
+
+  @doc """
+  Builds the fixed analysis/implementation/test/release template for an
+  already-persisted goal. Used as a deterministic, free fallback when a
+  design provider (see `M4w.Design`) fails or isn't configured.
+  """
+  def build_default_space(%Goal{} = goal) do
+    goal
+    |> default_space_multi()
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{space: space}} ->
+        {:ok, preload_space_workflow(space)}
+
+      {:error, operation, changeset, _changes} ->
+        {:error, operation, changeset}
+    end
+  end
+
+  @doc """
+  Persists a generated space blueprint (see `M4w.World.space_json_schema/0`)
+  for an already-persisted goal — rooms/keys/doors/entities/artifacts/
+  passages referencing each other by their generation-time key/code/name
+  rather than a database id.
+
+  Returns `{:ok, space}` or `{:error, reason}` (a changeset or an
+  `{:unknown_*, value}` tuple when the blueprint references a key that
+  doesn't exist).
+  """
+  def create_space_from_blueprint(%Goal{} = goal, blueprint) when is_map(blueprint) do
+    Repo.transaction(fn ->
+      with {:ok, space} <- insert_blueprint_space(goal, blueprint),
+           {:ok, rooms_by_key} <- insert_blueprint_rooms(space, blueprint),
+           {:ok, keys_by_code} <- insert_blueprint_keys(space, blueprint),
+           {:ok, doors_by_name} <- insert_blueprint_doors(space, blueprint, rooms_by_key),
+           :ok <- insert_blueprint_door_keys(blueprint, doors_by_name, keys_by_code),
+           {:ok, _entities} <- insert_blueprint_entities(space, blueprint, rooms_by_key),
+           {:ok, artifacts_by_key} <- insert_blueprint_artifacts(space, blueprint, rooms_by_key),
+           {:ok, _passages} <-
+             insert_blueprint_passages(
+               space,
+               blueprint,
+               rooms_by_key,
+               artifacts_by_key,
+               keys_by_code,
+               doors_by_name
+             ) do
+        preload_space_workflow(space)
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  @doc """
+  Creates a goal and designs its space via `M4w.Design`, falling back to
+  `build_default_space/1` if the provider fails or returns an invalid
+  blueprint. Always returns the `M4w.Design.Generation` audit record
+  alongside the result so callers can show token usage/cost.
+  """
+  def design_space_from_goal(goal_attrs, opts \\ []) do
+    with {:ok, goal} <- create_goal(goal_attrs) do
+      request = design_request(goal)
+      opts = Keyword.put(opts, :goal_id, goal.id)
+
+      case M4w.Design.generate_blueprint(request, opts) do
+        {:ok, blueprint, generation} ->
+          case create_space_from_blueprint(goal, blueprint) do
+            {:ok, space} ->
+              {:ok, generation} = M4w.Design.attach_space(generation, space.id)
+              {:ok, space, generation, :designed}
+
+            {:error, _reason} ->
+              fallback_space_from_goal(goal, generation)
+          end
+
+        {:error, _reason, generation} ->
+          fallback_space_from_goal(goal, generation)
+      end
+    end
+  end
+
+  defp fallback_space_from_goal(goal, generation) do
+    case build_default_space(goal) do
+      {:ok, space} ->
+        {:ok, generation} = M4w.Design.attach_space(generation, space.id)
+        {:ok, space, generation, :fallback}
+
+      {:error, operation, changeset} ->
+        {:error, operation, changeset, generation}
+    end
+  end
+
+  defp design_request(%Goal{} = goal) do
+    %{
+      system_prompt: design_system_prompt(),
+      user_prompt: design_user_prompt(goal),
+      tool_name: "emit_space_blueprint",
+      tool_description: "Emit the designed space blueprint for this goal.",
+      schema: space_json_schema() |> Map.drop(["$schema", "$id"])
+    }
+  end
+
+  defp design_system_prompt do
+    """
+    Du är arkitekten i "MUD for Work": ett Goal skapar ett Space, ett \
+    avgränsat arbetsrum med Rooms (episoder där en typ av arbete sker), \
+    Doors (grindar mellan rum), Keys (villkor, behörigheter eller \
+    kvalitetskrav som öppnar en dörr), Entities (AI-agenter, mänskliga \
+    roller eller verktyg), Artifacts (spårbara arbetsresultat) och Passages \
+    (spårbara övergångar mellan rum som bär en artifact och en used key).
+
+    Designa en komplett, sammanhängande pipeline för målet du får:
+    - Minst tre rum i en meningsfull ordning som passar målet (t.ex. \
+    analys, byggande, verifiering, leverans — men anpassa rummen till vad \
+    målet faktiskt kräver, inte en fast mall).
+    - Dörrar som länkar rummen i rätt ordning; lås dörren och koppla minst \
+    en key till den om ett villkor måste vara uppfyllt innan arbetet får \
+    gå vidare.
+    - Minst en artifact och en passage per dörr-passage, så att arbetet är \
+    spårbart från rum till rum.
+    - Namn och beskrivningar skrivs på svenska. `key`/`code`-fält är stabila, \
+    url-säkra slugs (gemener, siffror, `_` eller `-`) och unika inom sin \
+    lista.
+
+    Svara enbart genom att anropa verktyget — inga fritextsvar.
+    """
+  end
+
+  defp design_user_prompt(%Goal{title: title, description: description}) do
+    """
+    Goal: #{title}
+
+    Kontext: #{description || "(ingen ytterligare kontext angiven)"}
+    """
+  end
+
+  defp default_space_multi(goal) do
+    Ecto.Multi.new()
+    |> Ecto.Multi.insert(:space, fn _changes ->
       Space.changeset(%Space{}, %{
         goal_id: goal.id,
         name: goal.title,
@@ -97,15 +246,250 @@ defmodule M4w.World do
 
       {:ok, count}
     end)
-    |> Repo.transaction()
-    |> case do
-      {:ok, %{space: space}} ->
-        {:ok, preload_space_workflow(space)}
+  end
 
-      {:error, operation, changeset, _changes} ->
-        {:error, operation, changeset}
+  defp insert_blueprint_space(goal, blueprint) do
+    space_item = Map.get(blueprint, "space", %{}) || %{}
+
+    create_space(%{
+      goal_id: goal.id,
+      name: space_item["name"] || goal.title,
+      description: space_item["description"] || goal.description,
+      metadata: space_item["metadata"] || %{}
+    })
+  end
+
+  defp insert_blueprint_rooms(space, blueprint) do
+    blueprint
+    |> Map.get("rooms", [])
+    |> insert_blueprint_items(&room_attrs(space, &1), &create_room/1, & &1.key)
+  end
+
+  defp room_attrs(space, item) do
+    %{
+      space_id: space.id,
+      key: item["key"],
+      name: item["name"],
+      description: item["description"],
+      kind: item["kind"] || "place",
+      x: item["x"],
+      y: item["y"],
+      z: item["z"],
+      metadata: item["metadata"] || %{}
+    }
+  end
+
+  defp insert_blueprint_keys(space, blueprint) do
+    blueprint
+    |> Map.get("keys", [])
+    |> insert_blueprint_items(&key_attrs(space, &1), &create_key/1, & &1.code)
+  end
+
+  defp key_attrs(space, item) do
+    %{
+      space_id: space.id,
+      code: item["code"],
+      name: item["name"],
+      description: item["description"],
+      kind: item["kind"] || "condition",
+      status: item["status"] || "pending",
+      criteria: item["criteria"] || %{},
+      metadata: item["metadata"] || %{}
+    }
+  end
+
+  defp insert_blueprint_items(items, attrs_fun, insert_fun, key_fun) do
+    Enum.reduce_while(items, {:ok, %{}}, fn item, {:ok, acc} ->
+      case item |> attrs_fun.() |> insert_fun.() do
+        {:ok, record} -> {:cont, {:ok, Map.put(acc, key_fun.(record), record)}}
+        {:error, changeset} -> {:halt, {:error, changeset}}
+      end
+    end)
+  end
+
+  defp insert_blueprint_doors(space, blueprint, rooms_by_key) do
+    blueprint
+    |> Map.get("doors", [])
+    |> Enum.reduce_while({:ok, %{}}, fn item, {:ok, acc} ->
+      with {:ok, room_a} <- fetch_blueprint_room(rooms_by_key, item["room_a_key"]),
+           {:ok, room_b} <- fetch_blueprint_room(rooms_by_key, item["room_b_key"]),
+           {:ok, door} <- create_door(door_attrs(space, room_a, room_b, item)) do
+        {:cont, {:ok, Map.put(acc, item["name"], door)}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp door_attrs(space, room_a, room_b, item) do
+    %{
+      space_id: space.id,
+      room_a_id: room_a.id,
+      room_b_id: room_b.id,
+      name: item["name"],
+      description: item["description"],
+      state: item["state"] || "open",
+      locked: item["locked"] || false,
+      metadata: item["metadata"] || %{}
+    }
+  end
+
+  defp insert_blueprint_door_keys(blueprint, doors_by_name, keys_by_code) do
+    blueprint
+    |> Map.get("doors", [])
+    |> Enum.reduce_while(:ok, fn item, :ok ->
+      with {:ok, door} <- fetch_blueprint_door(doors_by_name, item["name"]),
+           :ok <- insert_door_key_requirements(door, item["key_requirements"] || [], keys_by_code) do
+        {:cont, :ok}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp insert_door_key_requirements(door, requirements, keys_by_code) do
+    Enum.reduce_while(requirements, :ok, fn req, :ok ->
+      with {:ok, key} <- fetch_blueprint_key(keys_by_code, req["key_code"]),
+           {:ok, _door_key} <-
+             require_key_for_door(door, key, %{
+               requirement_kind: req["requirement_kind"] || "required",
+               metadata: req["metadata"] || %{}
+             }) do
+        {:cont, :ok}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp insert_blueprint_entities(space, blueprint, rooms_by_key) do
+    blueprint
+    |> Map.get("entities", [])
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
+      with {:ok, room_id} <- fetch_blueprint_optional_room_id(rooms_by_key, item["room_key"]),
+           {:ok, entity} <- create_entity(entity_attrs(space, room_id, item)) do
+        {:cont, {:ok, [entity | acc]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> reverse_ok_list()
+  end
+
+  defp entity_attrs(space, room_id, item) do
+    %{
+      space_id: space.id,
+      room_id: room_id,
+      name: item["name"],
+      description: item["description"],
+      kind: item["kind"] || "thing",
+      state: item["state"] || "idle",
+      attributes: item["attributes"] || %{},
+      metadata: item["metadata"] || %{}
+    }
+  end
+
+  defp insert_blueprint_artifacts(space, blueprint, rooms_by_key) do
+    blueprint
+    |> Map.get("artifacts", [])
+    |> Enum.reduce_while({:ok, %{}}, fn item, {:ok, acc} ->
+      with {:ok, room_id} <- fetch_blueprint_optional_room_id(rooms_by_key, item["room_key"]),
+           {:ok, artifact} <- create_artifact(artifact_attrs(space, room_id, item)) do
+        {:cont, {:ok, Map.put(acc, item["key"], artifact)}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp artifact_attrs(space, room_id, item) do
+    %{
+      space_id: space.id,
+      room_id: room_id,
+      key: item["key"],
+      name: item["name"],
+      description: item["description"],
+      kind: item["kind"] || "work_product",
+      status: item["status"] || "draft",
+      content: item["content"] || %{},
+      metadata: item["metadata"] || %{}
+    }
+  end
+
+  defp insert_blueprint_passages(
+         space,
+         blueprint,
+         rooms_by_key,
+         artifacts_by_key,
+         keys_by_code,
+         doors_by_name
+       ) do
+    blueprint
+    |> Map.get("passages", [])
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
+      with {:ok, from_room} <- fetch_blueprint_room(rooms_by_key, item["from_room_key"]),
+           {:ok, to_room} <- fetch_blueprint_room(rooms_by_key, item["to_room_key"]),
+           {:ok, artifact} <- fetch_blueprint_artifact(artifacts_by_key, item["artifact_key"]),
+           {:ok, key} <- fetch_blueprint_key(keys_by_code, item["used_key_code"]),
+           {:ok, door} <- fetch_blueprint_optional_door(doors_by_name, item["door_name"]),
+           {:ok, passage} <-
+             create_passage(passage_attrs(space, from_room, to_room, door, artifact, key, item)) do
+        {:cont, {:ok, [passage | acc]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> reverse_ok_list()
+  end
+
+  defp passage_attrs(space, from_room, to_room, door, artifact, key, item) do
+    %{
+      space_id: space.id,
+      from_room_id: from_room.id,
+      to_room_id: to_room.id,
+      door_id: door && door.id,
+      artifact_id: artifact.id,
+      used_key_id: key.id,
+      direction: item["direction"],
+      name: item["name"],
+      description: item["description"],
+      conditions: item["conditions"] || %{},
+      metadata: item["metadata"] || %{}
+    }
+  end
+
+  defp fetch_blueprint_room(rooms_by_key, key),
+    do: fetch_blueprint_ref(rooms_by_key, key, :unknown_room_key)
+
+  defp fetch_blueprint_key(keys_by_code, code),
+    do: fetch_blueprint_ref(keys_by_code, code, :unknown_key_code)
+
+  defp fetch_blueprint_artifact(artifacts_by_key, key),
+    do: fetch_blueprint_ref(artifacts_by_key, key, :unknown_artifact_key)
+
+  defp fetch_blueprint_door(doors_by_name, name),
+    do: fetch_blueprint_ref(doors_by_name, name, :unknown_door_name)
+
+  defp fetch_blueprint_ref(map, key, error_tag) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, {error_tag, key}}
     end
   end
+
+  defp fetch_blueprint_optional_room_id(_rooms_by_key, nil), do: {:ok, nil}
+
+  defp fetch_blueprint_optional_room_id(rooms_by_key, key) do
+    with {:ok, room} <- fetch_blueprint_room(rooms_by_key, key), do: {:ok, room.id}
+  end
+
+  defp fetch_blueprint_optional_door(_doors_by_name, nil), do: {:ok, nil}
+
+  defp fetch_blueprint_optional_door(doors_by_name, name),
+    do: fetch_blueprint_door(doors_by_name, name)
+
+  defp reverse_ok_list({:ok, list}), do: {:ok, Enum.reverse(list)}
+  defp reverse_ok_list(error), do: error
 
   def update_goal(%Goal{} = goal, attrs) do
     goal
@@ -215,12 +599,27 @@ defmodule M4w.World do
       :goal,
       rooms: room_order_query(),
       doors: door_order_query(),
-      keys: key_order_query()
+      keys: key_order_query(),
+      entities: entity_order_query(),
+      artifacts: artifact_order_query(),
+      passages: passage_order_query()
     ])
   end
 
   defp room_order_query do
     from(room in Room, order_by: [asc: room.x, asc: room.name])
+  end
+
+  defp entity_order_query do
+    from(entity in Entity, order_by: [asc: entity.name])
+  end
+
+  defp artifact_order_query do
+    from(artifact in Artifact, order_by: [asc: artifact.name])
+  end
+
+  defp passage_order_query do
+    from(passage in Passage, order_by: [asc: passage.direction])
   end
 
   defp door_order_query do

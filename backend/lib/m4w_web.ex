@@ -17,7 +17,7 @@ defmodule M4wWeb do
   those modules here.
   """
 
-  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt test)
+  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt frontend)
 
   def router do
     quote do
