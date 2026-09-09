@@ -38,6 +38,16 @@ config :m4w, :stalwart,
 if config_env() != :test do
   anthropic_api_key = System.get_env("ANTHROPIC_API_KEY")
 
+  if is_nil(anthropic_api_key) do
+    require Logger
+
+    Logger.warning(
+      "ANTHROPIC_API_KEY is not set - M4w.Design will use the free Stub provider, " <>
+        "which always returns the same fixed blueprint regardless of input. " <>
+        "Set ANTHROPIC_API_KEY (see backend/.env.example) to use the real Claude provider."
+    )
+  end
+
   config :m4w, :design,
     anthropic_api_key: anthropic_api_key,
     provider:
