@@ -2,7 +2,7 @@
 
 const isPersistedId = (id) => /^\d+$/.test(String(id));
 
-const DesignView = ({ space, onSaveToRun }) => {
+const DesignView = React.forwardRef(({ space, onSaveToRun }, ref) => {
   const [goal, setGoal] = React.useState(space.goal);
   const [rooms, setRooms] = React.useState(null); // null = loading
   const [originalRooms, setOriginalRooms] = React.useState([]);
@@ -39,10 +39,13 @@ const DesignView = ({ space, onSaveToRun }) => {
     });
   };
 
-  // Commits the edited draft (add/remove/edit Rooms) back to the Space via
-  // the API — diffed against what's actually persisted — then switches to Kör.
-  const saveToRun = () => {
-    setSaving(true);
+  // Diffs the edited draft (add/remove/edit Rooms) against what's actually
+  // persisted and upserts via the regular Room CRUD endpoints. Skips the
+  // round-trip entirely if nothing changed since load/last save.
+  const persistRooms = () => {
+    if (!rooms || rooms.length === 0) return Promise.resolve();
+    if (JSON.stringify(rooms) === JSON.stringify(originalRooms)) return Promise.resolve();
+
     const keptIds = new Set(rooms.filter((r) => isPersistedId(r.id)).map((r) => r.id));
     const deletions = originalRooms
       .filter((r) => !keptIds.has(r.id))
@@ -55,7 +58,17 @@ const DesignView = ({ space, onSaveToRun }) => {
         : window.API.rooms.create(space.id, payload);
     });
 
-    Promise.all([...deletions, ...upserts]).then(() => {
+    return Promise.all([...deletions, ...upserts]);
+  };
+
+  // Exposed so the Space header's Design/Kör toggle (app.jsx) can flush an
+  // unsaved generated draft before leaving Design — otherwise switching to
+  // Kör without clicking "Spara och växla till Kör" silently discards it.
+  React.useImperativeHandle(ref, () => ({ flushPendingChanges: persistRooms }));
+
+  const saveToRun = () => {
+    setSaving(true);
+    persistRooms().then(() => {
       setSaving(false);
       onSaveToRun();
     });
@@ -248,6 +261,6 @@ const DesignView = ({ space, onSaveToRun }) => {
       </aside>
     </div>
   );
-};
+});
 
 window.DesignView = DesignView;

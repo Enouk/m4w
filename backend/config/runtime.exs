@@ -32,30 +32,59 @@ config :m4w, :stalwart,
   poll_interval_ms: String.to_integer(System.get_env("STALWART_POLL_INTERVAL_MS", "10000"))
 
 # Space design (M4w.Design). Deliberately skipped in :test so a developer's
-# globally-exported ANTHROPIC_API_KEY can never make the test suite call a
-# paid API — M4w.Design.provider/0 falls back to the free Stub provider
-# whenever this config isn't set.
+# globally-exported ANTHROPIC_API_KEY/OPENAI_API_KEY can never make the test
+# suite call a paid API — M4w.Design.provider/0 falls back to the free Stub
+# provider whenever this config isn't set.
+#
+# DESIGN_PROVIDER forces a specific provider ("anthropic" | "openai" |
+# "stub") — set this to switch providers without unsetting the other's API
+# key, e.g. when one account is out of credit but its key is still valid.
+# Left unset, the first provider with an API key configured wins (Anthropic,
+# then OpenAI), falling back to Stub if neither is set.
 if config_env() != :test do
-  anthropic_api_key = System.get_env("ANTHROPIC_API_KEY")
+  # `docker compose` passes through blank .env lines (e.g. `ANTHROPIC_API_KEY=`)
+  # as an empty string, not an unset var — and "" is truthy in Elixir, so
+  # without this it would wrongly pick that provider and send an empty key
+  # instead of falling back to Stub.
+  blank_to_nil = fn value -> if value in [nil, ""], do: nil, else: value end
 
-  if is_nil(anthropic_api_key) do
+  anthropic_api_key = System.get_env("ANTHROPIC_API_KEY") |> blank_to_nil.()
+  openai_api_key = System.get_env("OPENAI_API_KEY") |> blank_to_nil.()
+
+  {provider, default_model} =
+    case System.get_env("DESIGN_PROVIDER") |> blank_to_nil.() do
+      "anthropic" ->
+        {M4w.Design.Providers.Anthropic, "claude-sonnet-5"}
+
+      "openai" ->
+        {M4w.Design.Providers.OpenAI, "gpt-5"}
+
+      "stub" ->
+        {M4w.Design.Providers.Stub, "stub"}
+
+      nil ->
+        cond do
+          anthropic_api_key -> {M4w.Design.Providers.Anthropic, "claude-sonnet-5"}
+          openai_api_key -> {M4w.Design.Providers.OpenAI, "gpt-5"}
+          true -> {M4w.Design.Providers.Stub, "stub"}
+        end
+    end
+
+  if provider == M4w.Design.Providers.Stub do
     require Logger
 
     Logger.warning(
-      "ANTHROPIC_API_KEY is not set - M4w.Design will use the free Stub provider, " <>
-        "which always returns the same fixed blueprint regardless of input. " <>
-        "Set ANTHROPIC_API_KEY (see backend/.env.example) to use the real Claude provider."
+      "Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set - M4w.Design will use the " <>
+        "free Stub provider, which always returns the same fixed blueprint regardless " <>
+        "of input. Set one of them (see backend/.env.example) to use a real provider."
     )
   end
 
   config :m4w, :design,
     anthropic_api_key: anthropic_api_key,
-    provider:
-      if(anthropic_api_key,
-        do: M4w.Design.Providers.Anthropic,
-        else: M4w.Design.Providers.Stub
-      ),
-    model: System.get_env("DESIGN_MODEL", "claude-sonnet-5")
+    openai_api_key: openai_api_key,
+    provider: provider,
+    model: System.get_env("DESIGN_MODEL") |> blank_to_nil.() || default_model
 end
 
 if config_env() == :prod do

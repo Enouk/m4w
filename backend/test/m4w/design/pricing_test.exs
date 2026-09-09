@@ -33,7 +33,15 @@ defmodule M4w.Design.PricingTest do
 
     test "known?/2 reflects the pricing table" do
       assert Pricing.known?("anthropic", "claude-opus-5")
+      assert Pricing.known?("openai", "gpt-5")
       refute Pricing.known?("mistral", "unknown-model")
+    end
+
+    test "computes cost for an OpenAI model" do
+      cost =
+        Pricing.cost_usd("openai", "gpt-5", %{input_tokens: 1_000_000, output_tokens: 1_000_000})
+
+      assert Decimal.equal?(cost, Decimal.new("11.25"))
     end
   end
 end

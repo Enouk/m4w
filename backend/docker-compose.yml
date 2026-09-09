@@ -37,9 +37,13 @@ services:
       STALWART_JMAP_USER: ${STALWART_JMAP_USER:-}
       STALWART_JMAP_PASSWORD: ${STALWART_JMAP_PASSWORD:-}
       # Space design (M4w.Design) — see backend/.env.example. Left unset,
-      # the app falls back to the free M4w.Design.Providers.Stub.
+      # the app falls back to the free M4w.Design.Providers.Stub. Don't
+      # hardcode a default here for DESIGN_MODEL/DESIGN_PROVIDER — leave
+      # them blank so config/runtime.exs's own per-provider defaults apply.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      DESIGN_MODEL: ${DESIGN_MODEL:-claude-sonnet-5}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DESIGN_PROVIDER: ${DESIGN_PROVIDER:-}
+      DESIGN_MODEL: ${DESIGN_MODEL:-}
     ports:
       - "4000:4000"
     volumes:

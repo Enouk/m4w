@@ -154,7 +154,21 @@ const App = () => {
   const mode = (space && modeBySpace[space.id]) || "run";
   const tab = (space && tabBySpace[space.id]) || "pipeline";
 
+  const designViewRef = React.useRef(null);
+
   const setMode = (m) => setModeBySpace((p) => ({ ...p, [space.id]: m }));
+
+  // The Design/Kör toggle in the Space header bypasses DesignView's own
+  // "Spara och växla till Kör" button — without this, flipping straight to
+  // Kör after generating a draft would silently discard it (nothing but
+  // that button ever persisted the generated Rooms).
+  const changeMode = (m) => {
+    if (mode === "design" && m !== "design" && designViewRef.current) {
+      designViewRef.current.flushPendingChanges().then(() => setMode(m));
+    } else {
+      setMode(m);
+    }
+  };
   const setTab = (t) => setTabBySpace((p) => ({ ...p, [space.id]: t }));
 
   const selectSpace = (id) => {
@@ -287,14 +301,14 @@ const App = () => {
                     { label: "Kör", value: "run" }
                   ]}
                   value={mode}
-                  onChange={setMode}
+                  onChange={changeMode}
                 />
               </div>
             </header>
 
             <div className="space-body">
               {mode === "design" ? (
-                <DesignView key={space.id} space={space} onSaveToRun={() => setMode("run")} />
+                <DesignView ref={designViewRef} key={space.id} space={space} onSaveToRun={() => setMode("run")} />
               ) : (
                 <RunView
                   key={space.id}
