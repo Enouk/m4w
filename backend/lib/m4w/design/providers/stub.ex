@@ -23,6 +23,14 @@ defmodule M4w.Design.Providers.Stub do
     {:ok, %{blueprint: ops_blueprint(), usage: %{input_tokens: 90, output_tokens: 260}}}
   end
 
+  # No structured access to which mails/rooms were in the request (only
+  # prompt text), so the stub can't fabricate a matching room/mail_id pair.
+  # Returning no assignments is safe: M4w.Ops.run_replay/2 leaves those mails
+  # untouched and MailJSON falls back to their naive inbound routing.
+  def design(%{tool_name: "emit_mail_classifications"}, _opts) do
+    {:ok, %{blueprint: %{"assignments" => []}, usage: %{input_tokens: 60, output_tokens: 40}}}
+  end
+
   # `space.name` isn't part of the request — M4w.World falls back to the
   # goal's title when the blueprint doesn't set one, so it's left out here.
   defp world_blueprint do

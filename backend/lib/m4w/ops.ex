@@ -459,8 +459,11 @@ defmodule M4w.Ops do
   end
 
   defp design_mail_context_line(%Mail{} = mail) do
-    body = mail.body |> Enum.join(" ") |> String.slice(0, 500)
-    "- Från #{mail.from}: \"#{mail.subject}\" — #{body}"
+    "- Från #{mail.from}: \"#{mail.subject}\" — #{mail_body_snippet(mail)}"
+  end
+
+  defp mail_body_snippet(%Mail{} = mail) do
+    mail.body |> Enum.join(" ") |> String.slice(0, 500)
   end
 
   defp blueprint_to_room_drafts(%{"rooms" => rooms}) when is_list(rooms) and rooms != [] do
@@ -523,29 +526,180 @@ defmodule M4w.Ops do
   end
 
   # ---------------- Replay ----------------
+  #
+  # Classifies each candidate mail against the Space's *already designed*
+  # Room pipeline (see generate_rooms/2) via M4w.Design, and persists the
+  # result onto the mail's replay_* fields. If there are no Rooms yet, or
+  # the provider returns nothing usable, mails are left untouched —
+  # MailJSON.replay_results/1 falls back to the mail's naive inbound
+  # routing (room/confidence) in that case.
 
   def list_replay_batch(%Space{id: space_id}) do
     Mail
-    |> where([m], m.space_id == ^space_id and m.purpose == "replay_candidate")
+    |> where([m], m.space_id == ^space_id)
+    |> where(^replay_candidate_condition())
     |> order_by([m], asc: m.id)
     |> Repo.all()
   end
 
-  def run_replay(%Space{id: space_id}, mail_ids) do
+  def run_replay(%Space{} = space, mail_ids, opts \\ []) do
     ids = Enum.map(mail_ids, &to_integer/1)
 
-    mails =
+    mails_by_id =
       Mail
-      |> where(
-        [m],
-        m.space_id == ^space_id and m.purpose == "replay_candidate" and m.id in ^ids
-      )
+      |> where([m], m.space_id == ^space.id and m.id in ^ids)
+      |> where(^replay_candidate_condition())
       |> Repo.all()
-      |> Repo.preload(:replay_room)
       |> Map.new(&{&1.id, &1})
 
-    Enum.map(ids, fn id -> Map.get(mails, id) end)
-    |> Enum.reject(&is_nil/1)
+    ordered_mails = ids |> Enum.map(&Map.get(mails_by_id, &1)) |> Enum.reject(&is_nil/1)
+
+    updated_mails =
+      case {ordered_mails, list_rooms(space)} do
+        {[], _} -> ordered_mails
+        {_, []} -> ordered_mails
+        {_, rooms} -> classify_mails(space, rooms, ordered_mails, opts)
+      end
+
+    Repo.preload(updated_mails, [:replay_room, :room], force: true)
+  end
+
+  defp replay_candidate_condition do
+    dynamic(
+      [m],
+      m.purpose == "replay_candidate" or (m.purpose == "inbox" and m.status == "routed")
+    )
+  end
+
+  defp classify_mails(%Space{} = space, rooms, mails, opts) do
+    request = classify_request(space, rooms, mails)
+    opts = Keyword.put(opts, :ops_space_id, space.id)
+
+    case M4w.Design.generate_blueprint(request, opts) do
+      {:ok, blueprint, _generation} -> apply_replay_assignments(blueprint, mails, rooms)
+      {:error, _reason, _generation} -> mails
+    end
+  end
+
+  defp classify_request(%Space{} = space, rooms, mails) do
+    %{
+      system_prompt: classify_system_prompt(),
+      user_prompt: classify_user_prompt(space, rooms, mails),
+      tool_name: "emit_mail_classifications",
+      tool_description: "Classify each mail into one of the Space's existing Rooms.",
+      schema: classify_schema(rooms, mails)
+    }
+  end
+
+  defp classify_system_prompt do
+    """
+    Du klassificerar inkommande mail mot en redan designad pipeline av Rooms \
+    för detta Space. Varje Room har ett namn, ett subgoal (vad som måste vara \
+    sant för att rummets arbete ska anses klart) och en key (ett kort, \
+    läsbart villkor för när rummet öppnas).
+
+    För varje mail du får: välj vilket Room det hör hemma i just nu, ange hur \
+    säker du är (confidence 0-100), en kort key-text som förklarar villkoret \
+    eller varför, och sätt uncertain: true om inget Room passar bra.
+
+    Svara enbart genom att anropa verktyget — inga fritextsvar.
+    """
+  end
+
+  defp classify_user_prompt(%Space{} = space, rooms, mails) do
+    """
+    Space: #{space.name}
+
+    Rum-pipeline:
+    #{Enum.map_join(rooms, "\n", &room_context_line/1)}
+
+    Mail att klassificera:
+    #{Enum.map_join(mails, "\n", &classify_mail_context_line/1)}
+    """
+  end
+
+  defp room_context_line(%Room{} = room) do
+    "- #{room.name}: #{room.subgoal} (öppnar när: #{room.key})"
+  end
+
+  defp classify_mail_context_line(%Mail{} = mail) do
+    "- [#{mail.id}] Från #{mail.from}: \"#{mail.subject}\" — #{mail_body_snippet(mail)}"
+  end
+
+  defp classify_schema(rooms, mails) do
+    %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "required" => ["assignments"],
+      "properties" => %{
+        "assignments" => %{
+          "type" => "array",
+          "description" => "One classification per mail being replayed.",
+          "minItems" => 1,
+          "items" => %{
+            "type" => "object",
+            "additionalProperties" => false,
+            "required" => ["mail_id", "room", "confidence", "uncertain"],
+            "properties" => %{
+              "mail_id" => %{
+                "type" => "string",
+                "enum" => Enum.map(mails, &to_string(&1.id))
+              },
+              "room" => %{
+                "type" => "string",
+                "enum" => Enum.map(rooms, & &1.name)
+              },
+              "confidence" => %{
+                "type" => "integer",
+                "minimum" => 0,
+                "maximum" => 100
+              },
+              "key" => %{
+                "type" => "string",
+                "description" => "Short condition/reason for this classification."
+              },
+              "uncertain" => %{
+                "type" => "boolean",
+                "description" => "true if no Room fits this mail well."
+              }
+            }
+          }
+        }
+      }
+    }
+  end
+
+  defp apply_replay_assignments(%{"assignments" => assignments}, mails, rooms)
+       when is_list(assignments) do
+    rooms_by_name = Map.new(rooms, &{&1.name, &1})
+    assignments_by_mail_id = Map.new(assignments, &{to_string(&1["mail_id"]), &1})
+
+    {:ok, updated_mails} =
+      Repo.transaction(fn ->
+        Enum.map(mails, fn mail ->
+          case Map.get(assignments_by_mail_id, to_string(mail.id)) do
+            nil -> mail
+            assignment -> persist_replay_assignment(mail, assignment, rooms_by_name)
+          end
+        end)
+      end)
+
+    updated_mails
+  end
+
+  defp apply_replay_assignments(_blueprint, mails, _rooms), do: mails
+
+  defp persist_replay_assignment(%Mail{} = mail, assignment, rooms_by_name) do
+    room = Map.get(rooms_by_name, assignment["room"])
+
+    attrs = %{
+      "replay_room_id" => room && room.id,
+      "replay_confidence" => assignment["confidence"],
+      "replay_key" => assignment["key"],
+      "replay_uncertain" => assignment["uncertain"] == true or is_nil(room)
+    }
+
+    mail |> Mail.changeset(attrs) |> Repo.update!()
   end
 
   # ---------------- Outbox ----------------

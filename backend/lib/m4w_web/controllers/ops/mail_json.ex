@@ -12,16 +12,23 @@ defmodule M4wWeb.Ops.MailJSON do
     %{
       results:
         Enum.map(results, fn %Mail{} = mail ->
+          room = mail.replay_room || mail.room
+
           %{
             mailId: to_string(mail.id),
-            room: mail.replay_room && mail.replay_room.name,
-            confidence: mail.replay_confidence,
+            room: room && room.name,
+            confidence: mail.replay_confidence || confidence_pct(mail.confidence),
             key: mail.replay_key,
-            uncertain: mail.replay_uncertain
+            uncertain: mail.replay_uncertain || mail.confidence == "low"
           }
         end)
     }
   end
+
+  defp confidence_pct("high"), do: 95
+  defp confidence_pct("medium"), do: 70
+  defp confidence_pct("low"), do: 40
+  defp confidence_pct(_), do: nil
 
   def data(%Mail{} = mail) do
     %{
