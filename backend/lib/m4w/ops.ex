@@ -313,22 +313,25 @@ defmodule M4w.Ops do
           %{"status" => "unclassified", "reason" => "ingen matchande Space-adress"}
 
         %Space{} ->
-          room_id =
+          first_room =
             case list_rooms(space) do
-              [first_room | _] -> first_room.id
+              [first_room | _] -> first_room
               [] -> nil
             end
 
           %{
             "space_id" => space.id,
             "status" => "routed",
-            "room_id" => room_id,
-            "confidence" => room_id && "medium"
+            "room_id" => first_room && first_room.id,
+            "confidence" => first_room && "medium",
+            "room_name" => first_room && first_room.name
           }
       end
 
     Repo.transaction(fn ->
-      case %Mail{} |> Mail.changeset(Map.merge(base, classified)) |> Repo.insert() do
+      mail_attrs = Map.merge(base, Map.delete(classified, "room_name"))
+
+      case %Mail{} |> Mail.changeset(mail_attrs) |> Repo.insert() do
         {:ok, mail} ->
           Enum.each(attachments, fn attachment ->
             %MailAttachment{}
@@ -336,12 +339,48 @@ defmodule M4w.Ops do
             |> Repo.insert!()
           end)
 
+          if space, do: upsert_contact_from_mail(space, base["from"], base["from_email"], classified["room_name"])
+
           Repo.preload(mail, :attachments, force: true)
 
         {:error, changeset} ->
           Repo.rollback(changeset)
       end
     end)
+  end
+
+  defp upsert_contact_from_mail(_space, _from_name, nil, _room_name), do: :ok
+  defp upsert_contact_from_mail(_space, _from_name, "", _room_name), do: :ok
+
+  defp upsert_contact_from_mail(space, from_name, from_email, room_name) do
+    email = String.trim(from_email)
+
+    existing =
+      Contact
+      |> where([c], c.space_id == ^space.id and fragment("lower(?)", c.email) == ^String.downcase(email))
+      |> Repo.one()
+
+    case existing do
+      nil ->
+        %Contact{}
+        |> Contact.changeset(%{
+          "space_id" => space.id,
+          "name" => (from_name && from_name != "" && from_name) || email,
+          "email" => email,
+          "kind_group" => "extern",
+          "rooms" => List.wrap(room_name)
+        })
+        |> Repo.insert()
+
+      %Contact{} = contact ->
+        if room_name && room_name not in contact.rooms do
+          contact
+          |> Contact.changeset(%{"rooms" => contact.rooms ++ [room_name]})
+          |> Repo.update()
+        else
+          {:ok, contact}
+        end
+    end
   end
 
   defp parse_datetime(nil), do: nil
