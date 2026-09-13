@@ -7,7 +7,7 @@ defmodule M4wWeb.PageController do
 
   def frontend(conn, _params) do
     if String.ends_with?(conn.request_path, "/") do
-      path = Path.join([:code.priv_dir(:m4w), "static", "frontend", "index.html"])
+      path = Path.join([:code.priv_dir(:m4w), "static", "frontend", "mail", "index.html"])
 
       conn
       |> put_resp_content_type("text/html")
