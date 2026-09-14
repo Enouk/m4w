@@ -67,6 +67,9 @@ defmodule M4wWeb.Router do
     get "/items/:itemId", ItemController, :show
     patch "/items/:itemId", ItemController, :update
 
+    patch "/entities/:entityId", EntityController, :update
+    delete "/entities/:entityId", EntityController, :delete
+
     get "/artifacts/:artifactId", ArtifactController, :show
 
     get "/meetings/:meetingId", MeetingController, :show
@@ -98,6 +101,9 @@ defmodule M4wWeb.Router do
       delete "/rooms/:roomId", RoomController, :delete
 
       get "/rooms/:roomId/items", ItemController, :index
+
+      get "/rooms/:roomId/entities", EntityController, :index
+      post "/rooms/:roomId/entities", EntityController, :create
 
       get "/passages", PassageController, :index
       post "/passages", PassageController, :create

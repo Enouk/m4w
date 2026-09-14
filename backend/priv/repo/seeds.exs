@@ -26,7 +26,7 @@ alias M4w.Ops.{
 
 defmodule Seed.Helpers do
   alias M4w.Repo
-  alias M4w.Ops.{Artifact, Contact, Item, Mail, Passage, Room}
+  alias M4w.Ops.{Artifact, Contact, Entity, Item, Mail, Passage, Room}
 
   @now DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -37,14 +37,34 @@ defmodule Seed.Helpers do
   end
 
   def room!(space, name, position, entity_kind, entity_label, subgoal, key) do
-    Repo.insert!(%Room{
-      space_id: space.id,
-      name: name,
-      position: position,
-      entity_kind: entity_kind,
-      entity_label: entity_label,
-      subgoal: subgoal,
-      key: key
+    room =
+      Repo.insert!(%Room{
+        space_id: space.id,
+        name: name,
+        position: position,
+        subgoal: subgoal,
+        key: key
+      })
+
+    seed_entities!(room, entity_kind, entity_label)
+    room
+  end
+
+  defp seed_entities!(room, "mixed", label) do
+    seed_entities!(room, "ai", label)
+    seed_entities!(room, "human", label)
+  end
+
+  defp seed_entities!(room, "human", label) do
+    Repo.insert!(%Entity{room_id: room.id, kind: "human", name: label || "Person"})
+  end
+
+  defp seed_entities!(room, _kind, label) do
+    Repo.insert!(%Entity{
+      room_id: room.id,
+      kind: "ai",
+      agent_type: "claude_code",
+      name: label || "Agent"
     })
   end
 
@@ -379,12 +399,20 @@ Seed.Helpers.artifact!(
 Seed.Helpers.passage!(
   styrelse,
   "Agenda 12 dec passerade från Agenda till Möte",
-  Seed.Helpers.ago(0, 9, 28), from: r_agenda, to: r_mote, item: it_agenda)
+  Seed.Helpers.ago(0, 9, 28),
+  from: r_agenda,
+  to: r_mote,
+  item: it_agenda
+)
 
 Seed.Helpers.passage!(
   styrelse,
   "Protokoll 14 nov passerade från Möte till Protokoll",
-  Seed.Helpers.ago(0, 10, 42), from: r_mote, to: r_protokoll, item: it_protokoll)
+  Seed.Helpers.ago(0, 10, 42),
+  from: r_mote,
+  to: r_protokoll,
+  item: it_protokoll
+)
 
 Seed.Helpers.passage!(
   styrelse,
@@ -401,7 +429,10 @@ Seed.Helpers.passage!(
 Seed.Helpers.passage!(
   styrelse,
   "Styrelsemöte 14 nov passerade från Protokoll till Beslutslogg",
-  Seed.Helpers.ago(1, 7, 38), from: r_protokoll, to: r_beslutslogg)
+  Seed.Helpers.ago(1, 7, 38),
+  from: r_protokoll,
+  to: r_beslutslogg
+)
 
 Seed.Helpers.passage!(
   styrelse,
@@ -827,12 +858,18 @@ Seed.Helpers.artifact!(
 Seed.Helpers.passage!(
   projekt,
   "Beslut 'API-leverantör' passerade från Inkorg till Beslut",
-  Seed.Helpers.ago(0, 8, 42), from: p_inkorg, to: p_beslut, item: p_it_beslut1)
+  Seed.Helpers.ago(0, 8, 42),
+  from: p_inkorg,
+  to: p_beslut,
+  item: p_it_beslut1
+)
 
 Seed.Helpers.passage!(
   projekt,
   "Uppgift 'kodgranskning fre' tilldelad Marcus",
-  Seed.Helpers.ago(0, 9, 58), item: p_it_uppgift1)
+  Seed.Helpers.ago(0, 9, 58),
+  item: p_it_uppgift1
+)
 
 Seed.Helpers.passage!(
   projekt,
@@ -1187,7 +1224,11 @@ Seed.Helpers.artifact!(
 Seed.Helpers.passage!(
   bokforing,
   "Faktura #2024-117 passerade från Matchning till Godkännande",
-  Seed.Helpers.ago(0, 9, 28), from: b_matchning, to: b_godkannande, item: b_it_godkann)
+  Seed.Helpers.ago(0, 9, 28),
+  from: b_matchning,
+  to: b_godkannande,
+  item: b_it_godkann
+)
 
 Seed.Helpers.passage!(
   bokforing,
@@ -1459,12 +1500,19 @@ Seed.Helpers.artifact!(
 Seed.Helpers.passage!(
   fakturering,
   "Tidsunderlag vecka 26 passerade från Tidslogg till Fakturering",
-  Seed.Helpers.ago(0, 14, 48), from: f_tidslogg, to: f_fakturering, item: f_it_fakt)
+  Seed.Helpers.ago(0, 14, 48),
+  from: f_tidslogg,
+  to: f_fakturering,
+  item: f_it_fakt
+)
 
 Seed.Helpers.passage!(
   fakturering,
   "Faktura #117 passerade från Fakturering till Uppföljning",
-  Seed.Helpers.ago(1, 6, 20), from: f_fakturering, to: f_uppfoljning)
+  Seed.Helpers.ago(1, 6, 20),
+  from: f_fakturering,
+  to: f_uppfoljning
+)
 
 Seed.Helpers.passage!(
   fakturering,

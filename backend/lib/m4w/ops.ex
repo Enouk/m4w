@@ -16,6 +16,7 @@ defmodule M4w.Ops do
     Artifact,
     ComplianceCheck,
     Contact,
+    Entity,
     Goal,
     GoalPlanSchema,
     Item,
@@ -182,7 +183,8 @@ defmodule M4w.Ops do
     """
   end
 
-  defp blueprint_to_goal_space_drafts(%{"spaces" => spaces}) when is_list(spaces) and spaces != [] do
+  defp blueprint_to_goal_space_drafts(%{"spaces" => spaces})
+       when is_list(spaces) and spaces != [] do
     spaces
     |> Enum.with_index()
     |> Enum.map(fn {space, index} ->
@@ -196,7 +198,8 @@ defmodule M4w.Ops do
     [%{temp_id: "-1", name: "Implementation", subgoal: "Målet är genomfört"}]
   end
 
-  def confirm_goal_plan(%Goal{} = goal, %User{} = user, spaces_attrs) when is_list(spaces_attrs) do
+  def confirm_goal_plan(%Goal{} = goal, %User{} = user, spaces_attrs)
+      when is_list(spaces_attrs) do
     Repo.transaction(fn ->
       spaces =
         Enum.map(spaces_attrs, fn attrs ->
@@ -333,32 +336,103 @@ defmodule M4w.Ops do
       %{"space_id" => space.id, "position" => next_position}
       |> Map.merge(normalize_room_attrs(attrs))
 
-    %Room{} |> Room.changeset(attrs) |> Repo.insert()
+    {legacy_entity, attrs} = Map.pop(attrs, "entity")
+
+    with {:ok, room} <- %Room{} |> Room.changeset(attrs) |> Repo.insert() do
+      sync_room_entities_from_legacy_param(room, legacy_entity)
+      {:ok, room}
+    end
   end
 
   def update_room(%Room{} = room, attrs) do
-    room |> Room.changeset(normalize_room_attrs(attrs)) |> Repo.update()
+    attrs = normalize_room_attrs(attrs)
+    {legacy_entity, attrs} = Map.pop(attrs, "entity")
+
+    with {:ok, room} <- room |> Room.changeset(attrs) |> Repo.update() do
+      sync_room_entities_from_legacy_param(room, legacy_entity)
+      {:ok, room}
+    end
   end
 
   defp normalize_room_attrs(attrs) do
-    attrs
-    |> Map.new(fn
+    Map.new(attrs, fn
       {"order", value} -> {"position", value}
-      {"entity", %{"kind" => kind, "label" => label}} -> {"__entity__", {kind, label}}
       {key, value} -> {key, value}
-    end)
-    |> then(fn attrs ->
-      case Map.pop(attrs, "__entity__") do
-        {nil, attrs} ->
-          attrs
-
-        {{kind, label}, attrs} ->
-          Map.merge(attrs, %{"entity_kind" => kind, "entity_label" => label})
-      end
     end)
   end
 
+  # Transitional: frontend/mail's design-view still sends a room-level
+  # `entity: %{"kind" => ..., "label" => ...}` param (see DesignView.jsx
+  # `persistRooms`) instead of managing Entities directly. Translate it into
+  # real Ops.Entity row(s) so that flow keeps working unchanged. Remove once
+  # frontend/mail is migrated to the entities API.
+  defp sync_room_entities_from_legacy_param(_room, nil), do: :ok
+
+  defp sync_room_entities_from_legacy_param(%Room{} = room, %{"kind" => kind} = legacy) do
+    case list_room_entities(room) do
+      [] -> create_legacy_entities(room, kind, legacy["label"])
+      entities -> update_primary_entity_label(entities, legacy["label"])
+    end
+  end
+
+  defp sync_room_entities_from_legacy_param(_room, _legacy), do: :ok
+
+  defp create_legacy_entities(room, "mixed", label) do
+    create_entity(room, %{
+      "kind" => "ai",
+      "agent_type" => "claude_code",
+      "name" => label || "Agent"
+    })
+
+    create_entity(room, %{"kind" => "human", "name" => label || "Person"})
+  end
+
+  defp create_legacy_entities(room, "human", label) do
+    create_entity(room, %{"kind" => "human", "name" => label || "Person"})
+  end
+
+  defp create_legacy_entities(room, _kind, label) do
+    create_entity(room, %{
+      "kind" => "ai",
+      "agent_type" => "claude_code",
+      "name" => label || "Agent"
+    })
+  end
+
+  defp update_primary_entity_label(_entities, nil), do: :ok
+
+  defp update_primary_entity_label(entities, label) do
+    primary = Enum.find(entities, &(&1.kind == "ai")) || List.first(entities)
+    update_entity(primary, %{"name" => label})
+  end
+
   def delete_room(%Room{} = room), do: Repo.delete(room)
+
+  # ---------------- Entities ----------------
+
+  def list_room_entities(%Room{id: room_id}) do
+    Entity
+    |> where([e], e.room_id == ^room_id)
+    |> order_by([e], asc: e.id)
+    |> Repo.all()
+  end
+
+  def get_entity!(id) do
+    Entity
+    |> Repo.get!(to_integer(id))
+    |> Repo.preload(:room)
+  end
+
+  def create_entity(%Room{} = room, attrs) do
+    attrs = Map.put(attrs, "room_id", room.id)
+    %Entity{} |> Entity.changeset(attrs) |> Repo.insert()
+  end
+
+  def update_entity(%Entity{} = entity, attrs) do
+    entity |> Entity.changeset(attrs) |> Repo.update()
+  end
+
+  def delete_entity(%Entity{} = entity), do: Repo.delete(entity)
 
   # ---------------- Items ----------------
 
@@ -489,7 +563,14 @@ defmodule M4w.Ops do
             |> Repo.insert!()
           end)
 
-          if space, do: upsert_contact_from_mail(space, base["from"], base["from_email"], classified["room_name"])
+          if space,
+            do:
+              upsert_contact_from_mail(
+                space,
+                base["from"],
+                base["from_email"],
+                classified["room_name"]
+              )
 
           Repo.preload(mail, :attachments, force: true)
 
@@ -507,7 +588,10 @@ defmodule M4w.Ops do
 
     existing =
       Contact
-      |> where([c], c.space_id == ^space.id and fragment("lower(?)", c.email) == ^String.downcase(email))
+      |> where(
+        [c],
+        c.space_id == ^space.id and fragment("lower(?)", c.email) == ^String.downcase(email)
+      )
       |> Repo.one()
 
     case existing do

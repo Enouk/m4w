@@ -157,6 +157,67 @@ defmodule M4w.OpsTest do
     end
   end
 
+  describe "entities" do
+    test "create_room creates a default claude_code entity from a legacy entity param" do
+      space = space_fixture()
+
+      {:ok, room} =
+        Ops.create_room(space, %{"name" => "Rum", "entity" => %{"kind" => "ai", "label" => "AI"}})
+
+      assert [entity] = Ops.list_room_entities(room)
+      assert entity.kind == "ai"
+      assert entity.agent_type == "claude_code"
+      assert entity.name == "AI"
+    end
+
+    test "create_room creates an ai and a human entity for a legacy mixed entity param" do
+      space = space_fixture()
+
+      {:ok, room} =
+        Ops.create_room(space, %{
+          "name" => "Rum",
+          "entity" => %{"kind" => "mixed", "label" => "Team"}
+        })
+
+      entities = Ops.list_room_entities(room)
+      assert Enum.map(entities, & &1.kind) |> Enum.sort() == ["ai", "human"]
+      assert Enum.all?(entities, &(&1.name == "Team"))
+    end
+
+    test "update_room updates the existing primary entity's label instead of duplicating it" do
+      space = space_fixture()
+
+      {:ok, room} =
+        Ops.create_room(space, %{"name" => "Rum", "entity" => %{"kind" => "ai", "label" => "AI"}})
+
+      {:ok, room} =
+        Ops.update_room(room, %{"entity" => %{"kind" => "ai", "label" => "Ny etikett"}})
+
+      assert [entity] = Ops.list_room_entities(room)
+      assert entity.name == "Ny etikett"
+    end
+
+    test "create_entity, update_entity and delete_entity manage entities directly" do
+      space = space_fixture()
+      {:ok, room} = Ops.create_room(space, %{"name" => "Rum"})
+
+      {:ok, entity} =
+        Ops.create_entity(room, %{
+          "name" => "Claude",
+          "kind" => "ai",
+          "agent_type" => "claude_code"
+        })
+
+      assert Ops.list_room_entities(room) == [entity]
+
+      {:ok, entity} = Ops.update_entity(entity, %{"state" => "working"})
+      assert entity.state == "working"
+
+      {:ok, _} = Ops.delete_entity(entity)
+      assert Ops.list_room_entities(room) == []
+    end
+  end
+
   defmodule FailingProvider do
     @behaviour M4w.Design.Provider
 
@@ -241,7 +302,12 @@ defmodule M4w.OpsTest do
        %{
          blueprint: %{
            "assignments" => [
-             %{"mail_id" => mail_id, "room" => room_name, "confidence" => 60, "uncertain" => false}
+             %{
+               "mail_id" => mail_id,
+               "room" => room_name,
+               "confidence" => 60,
+               "uncertain" => false
+             }
            ]
          },
          usage: %{input_tokens: 5, output_tokens: 5}
