@@ -16,6 +16,8 @@ defmodule M4w.Ops do
     Artifact,
     ComplianceCheck,
     Contact,
+    Goal,
+    GoalPlanSchema,
     Item,
     Mail,
     MailAttachment,
@@ -30,7 +32,7 @@ defmodule M4w.Ops do
     Verification
   }
 
-  @space_categories ["Marketing", "Sales", "Service", "HR", "Accounting", "Board"]
+  @space_categories ["Marketing", "Sales", "Service", "HR", "Accounting", "Board", "Code"]
 
   def space_categories, do: @space_categories
 
@@ -72,6 +74,153 @@ defmodule M4w.Ops do
     |> Repo.all()
   end
 
+  # ---------------- Goals ----------------
+  #
+  # A Goal frames one or more Spaces created to reach it. Creating a Goal
+  # immediately spins up a "Plan" Space whose `goal` field holds the
+  # description that gets fed to the LLM in `generate_goal_plan/2` — the
+  # "plan mode" step that drafts the sibling Spaces needed to reach the
+  # goal. Drafts are never auto-persisted; `confirm_goal_plan/3` creates the
+  # real Spaces once the user approves the draft, mirroring the
+  # draft-then-confirm pattern used for Room generation below.
+
+  def list_goals_for_user(%User{} = user) do
+    Goal
+    |> where([g], g.user_id == ^user.id)
+    |> order_by([g], desc: g.inserted_at)
+    |> Repo.all()
+  end
+
+  def get_goal!(id) do
+    Goal
+    |> Repo.get!(to_integer(id))
+    |> Repo.preload(spaces: from(s in Space, order_by: [asc: s.id]))
+  end
+
+  def user_has_goal_access?(%User{} = user, goal_id) do
+    Goal
+    |> where([g], g.id == ^to_integer(goal_id) and g.user_id == ^user.id)
+    |> Repo.exists?()
+  end
+
+  def create_goal_with_plan(%User{} = user, attrs) do
+    title = Map.get(attrs, "title") || Map.get(attrs, :title)
+    description = Map.get(attrs, "description") || Map.get(attrs, :description) || ""
+
+    Repo.transaction(fn ->
+      {:ok, goal} =
+        %Goal{}
+        |> Goal.changeset(%{user_id: user.id, title: title, description: description})
+        |> Repo.insert()
+
+      {:ok, plan_space} =
+        create_space_for_user(user, %{
+          "name" => "Plan",
+          "category" => "Code",
+          "goal" => description
+        })
+
+      {:ok, plan_space} =
+        plan_space |> Space.changeset(%{goal_id: goal.id}) |> Repo.update()
+
+      {:ok, goal} =
+        goal |> Goal.changeset(%{plan_space_id: plan_space.id}) |> Repo.update()
+
+      %{goal | spaces: [plan_space]}
+    end)
+  end
+
+  def update_goal(%Goal{} = goal, attrs) do
+    goal |> Goal.changeset(attrs) |> Repo.update()
+  end
+
+  def delete_goal(%Goal{} = goal), do: Repo.delete(goal)
+
+  def generate_goal_plan(%Goal{} = goal) do
+    request = goal_plan_request(goal)
+    opts = [ops_space_id: goal.plan_space_id]
+
+    case M4w.Design.generate_blueprint(request, opts) do
+      {:ok, blueprint, _generation} ->
+        case blueprint_to_goal_space_drafts(blueprint) do
+          [] -> synthesize_goal_plan(goal)
+          drafts -> drafts
+        end
+
+      {:error, _reason, _generation} ->
+        synthesize_goal_plan(goal)
+    end
+  end
+
+  defp goal_plan_request(%Goal{} = goal) do
+    %{
+      system_prompt: goal_plan_system_prompt(),
+      user_prompt: goal_plan_user_prompt(goal),
+      tool_name: "emit_goal_plan",
+      tool_description: "Emit the drafted set of Spaces needed to reach this Goal.",
+      schema: GoalPlanSchema.schema()
+    }
+  end
+
+  defp goal_plan_system_prompt do
+    """
+    Du designar en plan för vilka Spaces som behövs för att nå ett mål i \
+    "Code for work". Varje Space är ett eget arbetsområde med sitt eget \
+    delmål (subgoal) som tillsammans, i ordning, uppfyller huvudmålet.
+
+    Föreslå minst ett och högst åtta Spaces. Skriv allt på svenska.
+
+    Svara enbart genom att anropa verktyget — inga fritextsvar.
+    """
+  end
+
+  defp goal_plan_user_prompt(%Goal{} = goal) do
+    """
+    Mål: #{goal.title}
+
+    Beskrivning: #{if goal.description in [nil, ""], do: "(ingen beskrivning angiven)", else: goal.description}
+    """
+  end
+
+  defp blueprint_to_goal_space_drafts(%{"spaces" => spaces}) when is_list(spaces) and spaces != [] do
+    spaces
+    |> Enum.with_index()
+    |> Enum.map(fn {space, index} ->
+      %{temp_id: "-#{index + 1}", name: space["name"], subgoal: space["subgoal"]}
+    end)
+  end
+
+  defp blueprint_to_goal_space_drafts(_blueprint), do: []
+
+  defp synthesize_goal_plan(%Goal{}) do
+    [%{temp_id: "-1", name: "Implementation", subgoal: "Målet är genomfört"}]
+  end
+
+  def confirm_goal_plan(%Goal{} = goal, %User{} = user, spaces_attrs) when is_list(spaces_attrs) do
+    Repo.transaction(fn ->
+      spaces =
+        Enum.map(spaces_attrs, fn attrs ->
+          name = Map.get(attrs, "name") || Map.get(attrs, :name)
+          subgoal = Map.get(attrs, "subgoal") || Map.get(attrs, :subgoal) || ""
+
+          {:ok, space} =
+            create_space_for_user(user, %{"name" => name, "category" => "Code", "goal" => subgoal})
+
+          {:ok, space} = space |> Space.changeset(%{goal_id: goal.id}) |> Repo.update()
+          space
+        end)
+
+      if goal.plan_space_id do
+        goal.plan_space_id
+        |> get_space!()
+        |> Space.changeset(%{status: "done"})
+        |> Repo.update!()
+      end
+
+      spaces
+    end)
+  end
+
   # ---------------- Spaces ----------------
 
   def list_spaces_for_user(%User{} = user) do
@@ -103,12 +252,13 @@ defmodule M4w.Ops do
   def create_space_for_user(%User{} = user, attrs) do
     name = Map.get(attrs, "name") || Map.get(attrs, :name)
     category = Map.get(attrs, "category") || Map.get(attrs, :category)
+    goal = Map.get(attrs, "goal") || Map.get(attrs, :goal)
     address = unique_address(name)
 
     Repo.transaction(fn ->
       {:ok, space} =
         %Space{}
-        |> Space.changeset(%{name: name, address: address, category: category})
+        |> Space.changeset(%{name: name, address: address, category: category, goal: goal})
         |> Repo.insert()
 
       {:ok, _} =

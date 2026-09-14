@@ -22,10 +22,15 @@ defmodule M4wWeb.Router do
     plug M4wWeb.Plugs.OpsSpaceAccess
   end
 
+  pipeline :ops_goal_access do
+    plug M4wWeb.Plugs.OpsGoalAccess
+  end
+
   scope "/", M4wWeb do
     pipe_through :browser
 
     get "/", PageController, :frontend
+    get "/code", PageController, :frontend_code
     live "/builder", BuilderLive
   end
 
@@ -51,6 +56,9 @@ defmodule M4wWeb.Router do
 
     get "/spaces", SpaceController, :index
     post "/spaces", SpaceController, :create
+
+    get "/goals", GoalController, :index
+    post "/goals", GoalController, :create
 
     post "/inbound-mail", MailController, :inbound
     get "/mail/:mailId", MailController, :show
@@ -113,6 +121,17 @@ defmodule M4wWeb.Router do
 
       get "/compliance", ComplianceController, :index
       get "/verifications", VerificationController, :index
+    end
+
+    scope "/goals/:goalId" do
+      pipe_through :ops_goal_access
+
+      get "/", GoalController, :show
+      patch "/", GoalController, :update
+      delete "/", GoalController, :delete
+
+      post "/plan", GoalController, :plan
+      post "/confirm", GoalController, :confirm
     end
   end
 
