@@ -19,10 +19,12 @@ defmodule M4w.Ops do
     Entity,
     Goal,
     GoalPlanSchema,
+    Inbox,
     Item,
     Mail,
     MailAttachment,
     Meeting,
+    Outbox,
     OutboxMessage,
     Passage,
     Room,
@@ -269,8 +271,19 @@ defmodule M4w.Ops do
         |> UserSpace.changeset(%{user_id: user.id, space_id: space.id})
         |> Repo.insert()
 
+      {:ok, _} = %Inbox{} |> Inbox.changeset(%{space_id: space.id}) |> Repo.insert()
+      {:ok, _} = %Outbox{} |> Outbox.changeset(%{space_id: space.id}) |> Repo.insert()
+
       space
     end)
+  end
+
+  def get_inbox!(%Space{id: space_id}) do
+    Inbox |> Repo.get_by!(space_id: space_id)
+  end
+
+  def get_outbox_entity!(%Space{id: space_id}) do
+    Outbox |> Repo.get_by!(space_id: space_id)
   end
 
   defp unique_address(name) do
@@ -562,6 +575,7 @@ defmodule M4w.Ops do
 
           %{
             "space_id" => space.id,
+            "inbox_id" => get_inbox!(space).id,
             "status" => "routed",
             "room_id" => first_room && first_room.id,
             "confidence" => first_room && "medium",
@@ -1128,6 +1142,7 @@ defmodule M4w.Ops do
     |> Mail.changeset(%{
       "status" => "routed",
       "space_id" => space.id,
+      "inbox_id" => get_inbox!(space).id,
       "room_id" => room_id,
       "confidence" => "high"
     })

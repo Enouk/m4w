@@ -2,7 +2,7 @@ defmodule M4w.Ops.OutboxMessage do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias M4w.Ops.Space
+  alias M4w.Ops.{Outbox, Space}
 
   schema "ops_outbox_messages" do
     field :state, :string, default: "queued"
@@ -15,6 +15,7 @@ defmodule M4w.Ops.OutboxMessage do
     field :occurred_at, :utc_datetime
 
     belongs_to :space, Space
+    belongs_to :outbox, Outbox
 
     timestamps(type: :utc_datetime)
   end
@@ -25,6 +26,7 @@ defmodule M4w.Ops.OutboxMessage do
     message
     |> cast(attrs, [
       :space_id,
+      :outbox_id,
       :state,
       :from,
       :to,

@@ -2,7 +2,7 @@ defmodule M4w.Ops.Space do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias M4w.Ops.{Goal, Room, User}
+  alias M4w.Ops.{Goal, Inbox, Outbox, Room, User}
 
   schema "ops_spaces" do
     field :name, :string
@@ -12,6 +12,8 @@ defmodule M4w.Ops.Space do
     field :status, :string, default: "active"
 
     belongs_to :parent_goal, Goal, foreign_key: :goal_id
+    has_one :inbox, Inbox
+    has_one :outbox, Outbox
     has_many :rooms, Room
     many_to_many :users, User, join_through: "ops_user_spaces"
 

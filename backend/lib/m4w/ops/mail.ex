@@ -2,7 +2,7 @@ defmodule M4w.Ops.Mail do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias M4w.Ops.{MailAttachment, Room, Space}
+  alias M4w.Ops.{Inbox, MailAttachment, Room, Space}
 
   schema "ops_mails" do
     field :from, :string
@@ -22,6 +22,7 @@ defmodule M4w.Ops.Mail do
     field :replay_uncertain, :boolean, default: false
 
     belongs_to :space, Space
+    belongs_to :inbox, Inbox
     belongs_to :room, Room
     belongs_to :replay_room, Room
     has_many :attachments, MailAttachment
@@ -37,6 +38,7 @@ defmodule M4w.Ops.Mail do
     mail
     |> cast(attrs, [
       :space_id,
+      :inbox_id,
       :room_id,
       :from,
       :from_email,
