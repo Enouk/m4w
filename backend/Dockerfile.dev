@@ -5,6 +5,14 @@ RUN apt-get update -y \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
+# Unprivileged user that M4w.Ops.AgentExecutor.ClaudeCode runs the `claude`
+# CLI as (via `runuser`) — Claude Code refuses --permission-mode
+# bypassPermissions when run as root/sudo, which the main app process still
+# is. UID 1000 matches the host dev user so the bind-mounted, 0600
+# ~/.claude.json / ~/.claude/.credentials.json (see docker-compose.yml) are
+# readable by this user without loosening their permissions on the host.
+RUN useradd -m -u 1000 -s /bin/sh agentrunner
+
 WORKDIR /app
 
 CMD ["sh", "-c", "mix local.hex --force && mix local.rebar --force && mix deps.get && mix ecto.create && mix ecto.migrate && mix run -e 'if M4w.Repo.aggregate(M4w.Ops.User, :count) == 0, do: Code.eval_file(\"priv/repo/seeds.exs\")' && mix phx.server"]

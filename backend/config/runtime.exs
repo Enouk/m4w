@@ -87,6 +87,23 @@ if config_env() != :test do
     model: System.get_env("DESIGN_MODEL") |> blank_to_nil.() || default_model
 end
 
+# Agent runner (M4w.Ops.AgentRunner) — polls for Items ready to be worked on
+# by an `ai` Entity. Deliberately skipped in :test, same reasoning as
+# :design above: a background GenServer polling Repo outside a test's Ecto
+# Sandbox ownership would crash/leak connections and make the suite flaky.
+# config/test.exs sets `enabled: false` explicitly and is left untouched
+# here.
+if config_env() != :test do
+  config :m4w, :agent_runner,
+    enabled: true,
+    poll_interval_ms: String.to_integer(System.get_env("AGENT_RUNNER_POLL_INTERVAL_MS", "5000")),
+    workspace_root: System.get_env("AGENT_RUNNER_WORKSPACE_ROOT", "/workspaces"),
+    executors: %{"claude_code" => M4w.Ops.AgentExecutor.ClaudeCode},
+    default_executor: M4w.Ops.AgentExecutor.Stub,
+    claude_timeout_ms:
+      String.to_integer(System.get_env("AGENT_RUNNER_CLAUDE_TIMEOUT_MS", "600000"))
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

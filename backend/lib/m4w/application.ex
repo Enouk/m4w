@@ -17,7 +17,7 @@ defmodule M4w.Application do
         # {M4w.Worker, arg},
         # Start to serve requests, typically the last entry
         M4wWeb.Endpoint
-      ] ++ stalwart_children()
+      ] ++ stalwart_children() ++ agent_runner_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -36,6 +36,14 @@ defmodule M4w.Application do
   defp stalwart_children do
     if Application.get_env(:m4w, :stalwart)[:jmap_url] do
       [M4w.Mail.StalwartPoller]
+    else
+      []
+    end
+  end
+
+  defp agent_runner_children do
+    if Application.get_env(:m4w, :agent_runner)[:enabled] do
+      [M4w.Ops.AgentRunner]
     else
       []
     end

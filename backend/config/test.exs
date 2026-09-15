@@ -23,6 +23,10 @@ config :m4w, M4wWeb.Endpoint,
 # In test we don't send emails
 config :m4w, M4w.Mailer, adapter: Swoosh.Adapters.Test
 
+# Never start the AgentRunner background poller in test — it would reach
+# into Repo outside a test's Ecto Sandbox ownership. See config/runtime.exs.
+config :m4w, :agent_runner, enabled: false
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 

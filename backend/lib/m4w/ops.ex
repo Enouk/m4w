@@ -465,6 +465,23 @@ defmodule M4w.Ops do
     item |> Item.changeset(attrs) |> Repo.update()
   end
 
+  # ---------------- Agent runner ----------------
+  #
+  # Items sitting in `state: "waiting"` inside a Room worked by an `ai`
+  # Entity are runnable — M4w.Ops.AgentRunner polls this to find work.
+
+  def list_ai_runnable_items(limit \\ 5) do
+    Item
+    |> join(:inner, [i], r in Room, on: i.room_id == r.id)
+    |> join(:inner, [i, r], e in Entity, on: e.room_id == r.id and e.kind == "ai")
+    |> where([i], i.state == "waiting")
+    |> distinct([i], i.id)
+    |> order_by([i], asc: i.id)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Repo.preload(room: [:entities, :space])
+  end
+
   # ---------------- Passages ----------------
 
   def list_passages(%Space{id: space_id}) do

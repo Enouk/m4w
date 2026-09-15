@@ -218,6 +218,72 @@ defmodule M4w.OpsTest do
     end
   end
 
+  describe "list_ai_runnable_items/1" do
+    test "returns waiting items in rooms worked by an ai entity" do
+      space = space_fixture()
+      {:ok, room} = Ops.create_room(space, %{"name" => "Rum"})
+
+      {:ok, _entity} =
+        Ops.create_entity(room, %{
+          "name" => "Claude",
+          "kind" => "ai",
+          "agent_type" => "claude_code"
+        })
+
+      {:ok, item} = Ops.create_item(room, %{"title" => "Ärende"})
+
+      assert [runnable] = Ops.list_ai_runnable_items()
+      assert runnable.id == item.id
+      assert runnable.room.id == room.id
+    end
+
+    test "excludes items in rooms with only a human entity" do
+      space = space_fixture()
+      {:ok, room} = Ops.create_room(space, %{"name" => "Rum"})
+      {:ok, _entity} = Ops.create_entity(room, %{"name" => "Person", "kind" => "human"})
+      {:ok, _item} = Ops.create_item(room, %{"title" => "Ärende"})
+
+      assert Ops.list_ai_runnable_items() == []
+    end
+
+    test "excludes items that are not waiting" do
+      space = space_fixture()
+      {:ok, room} = Ops.create_room(space, %{"name" => "Rum"})
+
+      {:ok, _entity} =
+        Ops.create_entity(room, %{
+          "name" => "Claude",
+          "kind" => "ai",
+          "agent_type" => "claude_code"
+        })
+
+      {:ok, item} = Ops.create_item(room, %{"title" => "Ärende"})
+      {:ok, _item} = Ops.update_item(item, %{"state" => "done"})
+
+      assert Ops.list_ai_runnable_items() == []
+    end
+
+    test "does not duplicate an item when its room has multiple ai entities" do
+      space = space_fixture()
+      {:ok, room} = Ops.create_room(space, %{"name" => "Rum"})
+
+      {:ok, _claude} =
+        Ops.create_entity(room, %{
+          "name" => "Claude",
+          "kind" => "ai",
+          "agent_type" => "claude_code"
+        })
+
+      {:ok, _codex} =
+        Ops.create_entity(room, %{"name" => "Codex", "kind" => "ai", "agent_type" => "codex"})
+
+      {:ok, item} = Ops.create_item(room, %{"title" => "Ärende"})
+
+      assert [runnable] = Ops.list_ai_runnable_items()
+      assert runnable.id == item.id
+    end
+  end
+
   defmodule FailingProvider do
     @behaviour M4w.Design.Provider
 

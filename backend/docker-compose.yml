@@ -57,6 +57,19 @@ services:
       - app_build:/app/_build
       - app_mix:/root/.mix
       - app_hex:/root/.hex
+      # Reuse the host's already-authenticated Claude Code CLI for
+      # M4w.Ops.AgentExecutor.ClaudeCode instead of a separate npm install +
+      # ANTHROPIC_API_KEY-based login — see feature notes in
+      # lib/m4w/ops/agent_executor/claude_code.ex. Read-only: the
+      # containerized agent must not be able to write into (or corrupt) the
+      # host's real Claude Code session state. Mounted under the
+      # `agentrunner` user's home (Dockerfile.dev, uid 1000 = host dev
+      # user), not /root — Claude Code refuses to run with
+      # --permission-mode bypassPermissions as root, so the CLI runs as
+      # that unprivileged user instead (see claude_code.ex).
+      - /home/marcus/.local/share/mise/installs/claude/latest/claude:/usr/local/bin/claude:ro
+      - /home/marcus/.claude.json:/home/agentrunner/.claude.json:ro
+      - /home/marcus/.claude:/home/agentrunner/.claude:ro
 
   mailserver:
     image: stalwartlabs/stalwart:v0.16
