@@ -73,18 +73,29 @@
     confirm: (id, spaces) => post(`/goals/${id}/confirm`, { spaces }).then(data)
   };
 
-  // ---------- Spaces (read/progress only — Goals own creation here) ----------
+  // ---------- Spaces (Goals own creation; Design can update goal/rooms here) ----------
   const spaces = {
-    get: (id) => get(`/spaces/${id}`).then(data)
+    get: (id) => get(`/spaces/${id}`).then(data),
+    update: (id, patchBody) => patch(`/spaces/${id}`, patchBody).then(data),
+    generate: (id) => post(`/spaces/${id}/generate`).then((json) => json.rooms)
   };
 
-  // ---------- Rooms / Items (used to compute a Space's progress) ----------
+  // ---------- Rooms / Items (also used to compute a Space's progress) ----------
   const rooms = {
-    list: (spaceId) => get(`/spaces/${spaceId}/rooms`).then(data)
+    list: (spaceId) => get(`/spaces/${spaceId}/rooms`).then(data),
+    create: (spaceId, roomData) => post(`/spaces/${spaceId}/rooms`, roomData).then(data),
+    update: (spaceId, roomId, patchBody) =>
+      patch(`/spaces/${spaceId}/rooms/${roomId}`, patchBody).then(data),
+    delete: (spaceId, roomId) => del(`/spaces/${spaceId}/rooms/${roomId}`)
   };
   const items = {
     listForRoom: (spaceId, roomId) => get(`/spaces/${spaceId}/rooms/${roomId}/items`).then(data)
   };
 
-  window.API = { auth, me, goals, spaces, rooms, items };
+  // ---------- Passages (item movement between rooms, drives the map's travel animation) ----------
+  const passages = {
+    list: (spaceId) => get(`/spaces/${spaceId}/passages`).then(data)
+  };
+
+  window.API = { auth, me, goals, spaces, rooms, items, passages };
 })();

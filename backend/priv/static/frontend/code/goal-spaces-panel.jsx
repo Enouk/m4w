@@ -37,7 +37,7 @@ const SpaceProgress = ({ space }) => {
   );
 };
 
-const GoalSpacesPanel = ({ goal }) => {
+const GoalSpacesPanel = ({ goal, openSpaceId, onOpenSpace }) => {
   if (!goal) {
     return (
       <aside className="goal-panel goal-panel--empty">
@@ -64,11 +64,17 @@ const GoalSpacesPanel = ({ goal }) => {
         <div className="goal-panel-empty-body">Inga spaces skapade ännu — bekräfta planen i chatten.</div>
       ) : (
         implementationSpaces.map((sp) => (
-          <div key={sp.id} className="goal-space-card">
+          <button
+            type="button"
+            key={sp.id}
+            className={"goal-space-card goal-space-card--enter" + (sp.id === openSpaceId ? " is-open" : "")}
+            onClick={() => onOpenSpace(sp)}
+          >
             <div className="goal-space-name">{sp.name}</div>
             <div className="goal-space-subgoal">{sp.goal}</div>
             <SpaceProgress space={sp} />
-          </div>
+            <div className="goal-space-enter">Öppna karta →</div>
+          </button>
         ))
       )}
     </aside>

@@ -51,7 +51,7 @@ defmodule Seed.Helpers do
   end
 
   defp seed_entities!(room, "mixed", label) do
-    seed_entities!(room, "ai", label)
+    seed_entities!(room, "ai", "AI")
     seed_entities!(room, "human", label)
   end
 

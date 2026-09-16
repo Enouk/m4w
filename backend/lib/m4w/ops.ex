@@ -390,11 +390,16 @@ defmodule M4w.Ops do
 
   defp sync_room_entities_from_legacy_param(_room, _legacy), do: :ok
 
+  # A "mixed" room gets a single combined label from the design LLM (e.g.
+  # "AI + Designer") describing both participants together — giving that
+  # same string as the `name` of both Entity rows makes them look like
+  # duplicates in the map (same text, two icons). The AI side gets a plain
+  # "AI" name; the human side keeps the descriptive label.
   defp create_legacy_entities(room, "mixed", label) do
     create_entity(room, %{
       "kind" => "ai",
       "agent_type" => "claude_code",
-      "name" => label || "Agent"
+      "name" => "AI"
     })
 
     create_entity(room, %{"kind" => "human", "name" => label || "Person"})

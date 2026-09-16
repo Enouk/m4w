@@ -8,6 +8,9 @@ const App = () => {
   const [selectedGoalId, setSelectedGoalId] = React.useState(null);
   const [goalDetail, setGoalDetail] = React.useState(null); // full goal incl. spaces, or null
   const [confirmDeleteGoal, setConfirmDeleteGoal] = React.useState(null); // { id, title }
+  const [openSpace, setOpenSpace] = React.useState(null); // full Space (id, name, goal, address, …) or null
+  const [modeBySpace, setModeBySpace] = React.useState({}); // per-space Design/Karta, defaults to "map"
+  const designRef = React.useRef(null);
 
   React.useEffect(() => {
     window.API.me
@@ -32,12 +35,14 @@ const App = () => {
   const selectGoal = (id) => {
     setSelectedGoalId(id);
     setGoalDetail(null);
+    setOpenSpace(null);
     window.API.goals.get(id).then(setGoalDetail);
   };
 
   const newGoal = () => {
     setSelectedGoalId(null);
     setGoalDetail(null);
+    setOpenSpace(null);
   };
 
   const onGoalCreated = (newGoalDetail) => {
@@ -82,6 +87,20 @@ const App = () => {
     });
   };
 
+  const spaceMode = (openSpace && modeBySpace[openSpace.id]) || "map";
+  const setSpaceMode = (m) => setModeBySpace((p) => ({ ...p, [openSpace.id]: m }));
+
+  // Leaving Design via the header toggle bypasses DesignView's own "Spara
+  // och växla till Karta" button — without this, flipping straight to
+  // Karta after generating a draft would silently discard it.
+  const changeSpaceMode = (m) => {
+    if (spaceMode === "design" && m !== "design" && designRef.current) {
+      designRef.current.flushPendingChanges().then(() => setSpaceMode(m));
+    } else {
+      setSpaceMode(m);
+    }
+  };
+
   if (checkingSession) return null;
 
   if (!user) {
@@ -101,15 +120,28 @@ const App = () => {
       />
 
       <main className="main">
-        <ChatView
-          key={selectedGoalId || "compose"}
-          goal={goalDetail}
-          onGoalCreated={onGoalCreated}
-          onPlanConfirmed={onPlanConfirmed}
-        />
+        {openSpace ? (
+          <SpaceMapView
+            spaceId={openSpace.id}
+            spaceName={openSpace.name}
+            space={openSpace}
+            mode={spaceMode}
+            onChangeMode={changeSpaceMode}
+            onModeSaved={setSpaceMode}
+            designRef={designRef}
+            onBack={() => setOpenSpace(null)}
+          />
+        ) : (
+          <ChatView
+            key={selectedGoalId || "compose"}
+            goal={goalDetail}
+            onGoalCreated={onGoalCreated}
+            onPlanConfirmed={onPlanConfirmed}
+          />
+        )}
       </main>
 
-      <GoalSpacesPanel goal={goalDetail} />
+      <GoalSpacesPanel goal={goalDetail} openSpaceId={openSpace && openSpace.id} onOpenSpace={setOpenSpace} />
 
       <ConfirmModal
         open={!!confirmDeleteGoal}
