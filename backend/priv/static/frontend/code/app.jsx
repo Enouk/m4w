@@ -51,11 +51,6 @@ const App = () => {
     refreshGoals();
   };
 
-  const onPlanConfirmed = (updatedGoalDetail) => {
-    setGoalDetail(updatedGoalDetail);
-    refreshGoals();
-  };
-
   const requestDeleteGoal = (id, title) => setConfirmDeleteGoal({ id, title });
 
   const deleteGoal = () => {
@@ -136,7 +131,7 @@ const App = () => {
             key={selectedGoalId || "compose"}
             goal={goalDetail}
             onGoalCreated={onGoalCreated}
-            onPlanConfirmed={onPlanConfirmed}
+            onOpenSpace={setOpenSpace}
           />
         )}
       </main>

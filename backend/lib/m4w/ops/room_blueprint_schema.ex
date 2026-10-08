@@ -41,7 +41,9 @@ defmodule M4w.Ops.RoomBlueprintSchema do
               "entity_label" => %{
                 "type" => "string",
                 "description" =>
-                  "Short label for who/what works here, e.g. \"AI\" or \"Ansvarig\".",
+                  "Short label for the team role that works here, e.g. \"Frontend-utvecklare\" " <>
+                    "or \"Ansvarig\" — reuse the exact same label across rooms when the same " <>
+                    "role staffs more than one.",
                 "maxLength" => 255
               },
               "key" => %{

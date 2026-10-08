@@ -7,7 +7,7 @@ defmodule M4wWeb.Ops.EntityJSON do
   def data(%Entity{} = entity) do
     %{
       id: to_string(entity.id),
-      roomId: to_string(entity.room_id),
+      spaceId: to_string(entity.space_id),
       name: entity.name,
       kind: entity.kind,
       agentType: entity.agent_type,

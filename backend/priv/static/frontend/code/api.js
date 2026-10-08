@@ -68,9 +68,7 @@
     get: (id) => get(`/goals/${id}`).then(data),
     create: ({ title, description }) => post("/goals", { title, description }).then(data),
     update: (id, patchBody) => patch(`/goals/${id}`, patchBody).then(data),
-    delete: (id) => del(`/goals/${id}`),
-    plan: (id) => post(`/goals/${id}/plan`).then((json) => json.spaces),
-    confirm: (id, spaces) => post(`/goals/${id}/confirm`, { spaces }).then(data)
+    delete: (id) => del(`/goals/${id}`)
   };
 
   // ---------- Spaces (Goals own creation; Design can update goal/rooms here) ----------

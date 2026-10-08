@@ -37,7 +37,7 @@ defmodule M4wWeb.Ops.EntityController do
   end
 
   defp authorize(conn, entity) do
-    if Ops.user_has_space_access?(conn.assigns.current_user, entity.room.space_id) do
+    if Ops.user_has_space_access?(conn.assigns.current_user, entity.space_id) do
       :ok
     else
       {:error, :forbidden}

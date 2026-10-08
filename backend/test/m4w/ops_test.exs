@@ -181,7 +181,8 @@ defmodule M4w.OpsTest do
 
       entities = Ops.list_room_entities(room)
       assert Enum.map(entities, & &1.kind) |> Enum.sort() == ["ai", "human"]
-      assert Enum.all?(entities, &(&1.name == "Team"))
+      assert Enum.find(entities, &(&1.kind == "ai")).name == "AI"
+      assert Enum.find(entities, &(&1.kind == "human")).name == "Team"
     end
 
     test "update_room updates the existing primary entity's label instead of duplicating it" do
@@ -195,6 +196,27 @@ defmodule M4w.OpsTest do
 
       assert [entity] = Ops.list_room_entities(room)
       assert entity.name == "Ny etikett"
+    end
+
+    test "rooms sharing the same role label reuse one Entity instead of duplicating it" do
+      space = space_fixture()
+
+      {:ok, room_a} =
+        Ops.create_room(space, %{
+          "name" => "Design",
+          "entity" => %{"kind" => "ai", "label" => "Backend-utvecklare"}
+        })
+
+      {:ok, room_b} =
+        Ops.create_room(space, %{
+          "name" => "Implementation",
+          "entity" => %{"kind" => "ai", "label" => "Backend-utvecklare"}
+        })
+
+      [entity_a] = Ops.list_room_entities(room_a)
+      [entity_b] = Ops.list_room_entities(room_b)
+
+      assert entity_a.id == entity_b.id
     end
 
     test "create_entity, update_entity and delete_entity manage entities directly" do

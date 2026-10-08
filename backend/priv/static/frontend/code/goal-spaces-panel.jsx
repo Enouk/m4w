@@ -46,37 +46,23 @@ const GoalSpacesPanel = ({ goal, openSpaceId, onOpenSpace }) => {
     );
   }
 
-  const planSpace = goal.spaces.find((sp) => sp.id === goal.planSpaceId);
-  const implementationSpaces = goal.spaces.filter((sp) => sp.id !== goal.planSpaceId);
-
   return (
     <aside className="goal-panel">
-      <div className="goal-panel-title">Spaces för målet</div>
+      <div className="goal-panel-title">Space för målet</div>
 
-      {planSpace && (
-        <div className="goal-space-card goal-space-card--plan">
-          <div className="goal-space-name">{planSpace.name}</div>
-          <div className="goal-space-status">{planSpace.status === "done" ? "Plan klar" : "Planerar…"}</div>
-        </div>
-      )}
-
-      {implementationSpaces.length === 0 ? (
-        <div className="goal-panel-empty-body">Inga spaces skapade ännu — bekräfta planen i chatten.</div>
-      ) : (
-        implementationSpaces.map((sp) => (
-          <button
-            type="button"
-            key={sp.id}
-            className={"goal-space-card goal-space-card--enter" + (sp.id === openSpaceId ? " is-open" : "")}
-            onClick={() => onOpenSpace(sp)}
-          >
-            <div className="goal-space-name">{sp.name}</div>
-            <div className="goal-space-subgoal">{sp.goal}</div>
-            <SpaceProgress space={sp} />
-            <div className="goal-space-enter">Öppna karta →</div>
-          </button>
-        ))
-      )}
+      {goal.spaces.map((sp) => (
+        <button
+          type="button"
+          key={sp.id}
+          className={"goal-space-card goal-space-card--enter" + (sp.id === openSpaceId ? " is-open" : "")}
+          onClick={() => onOpenSpace(sp)}
+        >
+          <div className="goal-space-name">{sp.name}</div>
+          <div className="goal-space-subgoal">{sp.goal}</div>
+          <SpaceProgress space={sp} />
+          <div className="goal-space-enter">Öppna karta →</div>
+        </button>
+      ))}
     </aside>
   );
 };

@@ -135,9 +135,6 @@ defmodule M4wWeb.Router do
       get "/", GoalController, :show
       patch "/", GoalController, :update
       delete "/", GoalController, :delete
-
-      post "/plan", GoalController, :plan
-      post "/confirm", GoalController, :confirm
     end
   end
 

@@ -10,7 +10,7 @@ defmodule M4wWeb.Ops.GoalController do
   end
 
   def create(conn, params) do
-    with {:ok, goal} <- Ops.create_goal_with_plan(conn.assigns.current_user, params) do
+    with {:ok, goal} <- Ops.create_goal(conn.assigns.current_user, params) do
       conn |> put_status(:created) |> render(:show, goal: goal)
     end
   end
@@ -26,18 +26,6 @@ defmodule M4wWeb.Ops.GoalController do
   def delete(conn, _params) do
     with {:ok, _} <- Ops.delete_goal(conn.assigns.goal) do
       send_resp(conn, :no_content, "")
-    end
-  end
-
-  def plan(conn, _params) do
-    spaces = Ops.generate_goal_plan(conn.assigns.goal)
-    render(conn, :plan, spaces: spaces)
-  end
-
-  def confirm(conn, %{"spaces" => spaces_attrs}) do
-    with {:ok, _spaces} <-
-           Ops.confirm_goal_plan(conn.assigns.goal, conn.assigns.current_user, spaces_attrs) do
-      conn |> put_status(:created) |> render(:show, goal: Ops.get_goal!(conn.assigns.goal.id))
     end
   end
 end

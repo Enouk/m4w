@@ -10,7 +10,6 @@ defmodule M4w.Ops.Goal do
     field :status, :string, default: "active"
 
     belongs_to :user, User
-    belongs_to :plan_space, Space
     has_many :spaces, Space, foreign_key: :goal_id
 
     timestamps(type: :utc_datetime)
@@ -18,9 +17,8 @@ defmodule M4w.Ops.Goal do
 
   def changeset(goal, attrs) do
     goal
-    |> cast(attrs, [:user_id, :title, :description, :status, :plan_space_id])
+    |> cast(attrs, [:user_id, :title, :description, :status])
     |> validate_required([:user_id, :title])
     |> foreign_key_constraint(:user_id)
-    |> foreign_key_constraint(:plan_space_id)
   end
 end

@@ -2387,11 +2387,6 @@ a { color: inherit; }
   border-color: var(--accent-tint);
 }
 
-.chat-thinking {
-  color: var(--text-2);
-  font-style: italic;
-}
-
 .chat-plan-title {
   font-weight: 500;
   margin-bottom: 10px;
@@ -2401,29 +2396,6 @@ a { color: inherit; }
   display: flex;
   gap: 8px;
   margin-top: 12px;
-}
-
-.plan-card-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.plan-card {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-2);
-}
-
-.plan-card-name {
-  font-weight: 500;
-}
-
-.plan-card-subgoal {
-  font-size: 12.5px;
-  color: var(--text-2);
-  margin-top: 2px;
 }
 
 /* ---------- Goal spaces panel (right sidebar) ---------- */
@@ -2459,15 +2431,10 @@ a { color: inherit; }
   background: var(--surface);
 }
 
-.goal-space-card--plan {
-  background: var(--surface-3);
-}
-
 .goal-space-name {
   font-weight: 500;
 }
 
-.goal-space-status,
 .goal-space-subgoal {
   font-size: 12.5px;
   color: var(--text-2);

@@ -1,3 +1,4 @@
+
 defmodule M4w.Ops.AgentRunner do
   @moduledoc """
   Periodically picks up `M4w.Ops.Item`s sitting in `state: "waiting"` inside
@@ -19,7 +20,7 @@ defmodule M4w.Ops.AgentRunner do
   require Logger
 
   alias M4w.Ops
-  alias M4w.Ops.{Entity, Space}
+  alias M4w.Ops.Space
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -31,8 +32,7 @@ defmodule M4w.Ops.AgentRunner do
 
     state = %{
       poll_interval_ms: Keyword.get(config, :poll_interval_ms, 5_000),
-      executors: Keyword.get(config, :executors, %{}),
-      default_executor: Keyword.get(config, :default_executor, M4w.Ops.AgentExecutor.Stub)
+      executor: Keyword.get(config, :executor, M4w.Ops.AgentExecutor.Stub)
     }
 
     send(self(), :poll)
@@ -41,22 +41,20 @@ defmodule M4w.Ops.AgentRunner do
 
   @impl true
   def handle_info(:poll, state) do
-    poll(state)
+    poll(state.executor)
     Process.send_after(self(), :poll, state.poll_interval_ms)
     {:noreply, state}
   end
 
-  defp poll(state) do
+  defp poll(executor) do
     Ops.list_ai_runnable_items()
-    |> Enum.each(&run_item(&1, state))
+    |> Enum.each(&run_item(&1, executor))
   rescue
     error ->
       Logger.error("AgentRunner: poll failed: #{Exception.format(:error, error, __STACKTRACE__)}")
   end
 
-  defp run_item(item, state) do
-    executor = select_executor(item, state)
-
+  defp run_item(item, executor) do
     case Ops.update_item(item, %{"state" => "running"}) do
       {:ok, running_item} ->
         execute(running_item, executor)
@@ -71,24 +69,6 @@ defmodule M4w.Ops.AgentRunner do
       )
   end
 
-  @doc """
-  Picks the executor for `item`'s primary `ai` Entity (first one found in
-  its Room), keyed off `agent_type` via `state.executors`
-  (`%{"claude_code" => M4w.Ops.AgentExecutor.ClaudeCode, ...}`), falling
-  back to `state.default_executor` when there's no entity or no match —
-  e.g. an `ai` Entity with a blank/unrecognized `agent_type`.
-  """
-  def select_executor(item, %{executors: executors, default_executor: default}) do
-    case primary_ai_entity(item) do
-      %Entity{agent_type: agent_type} -> Map.get(executors, agent_type, default)
-      nil -> default
-    end
-  end
-
-  defp primary_ai_entity(%{room: %{entities: entities}}) do
-    Enum.find(entities, &(&1.kind == "ai"))
-  end
-
   defp execute(item, executor) do
     case executor.run(item) do
       {:ok, result} ->
@@ -101,21 +81,7 @@ defmodule M4w.Ops.AgentRunner do
     end
   end
 
-  # ops_passages.text is varchar(255) — executor summaries/errors can run
-  # much longer than that (Claude Code's JSON `result` in particular), so
-  # truncate rather than let the insert fail with string_data_right_truncation.
   defp log_passage(item, text) do
-    Ops.create_passage(%Space{id: item.room.space_id}, %{
-      "item_id" => item.id,
-      "text" => truncate(text, 250)
-    })
-  end
-
-  defp truncate(text, max) do
-    if String.length(text) > max do
-      String.slice(text, 0, max - 1) <> "…"
-    else
-      text
-    end
+    Ops.create_passage(%Space{id: item.room.space_id}, %{"item_id" => item.id, "text" => text})
   end
 end

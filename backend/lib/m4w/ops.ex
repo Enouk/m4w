@@ -18,7 +18,6 @@ defmodule M4w.Ops do
     Contact,
     Entity,
     Goal,
-    GoalPlanSchema,
     Inbox,
     Item,
     Mail,
@@ -79,13 +78,9 @@ defmodule M4w.Ops do
 
   # ---------------- Goals ----------------
   #
-  # A Goal frames one or more Spaces created to reach it. Creating a Goal
-  # immediately spins up a "Plan" Space whose `goal` field holds the
-  # description that gets fed to the LLM in `generate_goal_plan/2` — the
-  # "plan mode" step that drafts the sibling Spaces needed to reach the
-  # goal. Drafts are never auto-persisted; `confirm_goal_plan/3` creates the
-  # real Spaces once the user approves the draft, mirroring the
-  # draft-then-confirm pattern used for Room generation below.
+  # A Goal frames the single Space created to reach it — one complete
+  # "team" (see the room-design Entities below) working an ordered Room
+  # pipeline, rather than the goal being split across several Spaces.
 
   def list_goals_for_user(%User{} = user) do
     Goal
@@ -106,7 +101,7 @@ defmodule M4w.Ops do
     |> Repo.exists?()
   end
 
-  def create_goal_with_plan(%User{} = user, attrs) do
+  def create_goal(%User{} = user, attrs) do
     title = Map.get(attrs, "title") || Map.get(attrs, :title)
     description = Map.get(attrs, "description") || Map.get(attrs, :description) || ""
 
@@ -116,20 +111,16 @@ defmodule M4w.Ops do
         |> Goal.changeset(%{user_id: user.id, title: title, description: description})
         |> Repo.insert()
 
-      {:ok, plan_space} =
+      {:ok, space} =
         create_space_for_user(user, %{
-          "name" => "Plan",
+          "name" => title,
           "category" => "Code",
           "goal" => description
         })
 
-      {:ok, plan_space} =
-        plan_space |> Space.changeset(%{goal_id: goal.id}) |> Repo.update()
+      {:ok, space} = space |> Space.changeset(%{goal_id: goal.id}) |> Repo.update()
 
-      {:ok, goal} =
-        goal |> Goal.changeset(%{plan_space_id: plan_space.id}) |> Repo.update()
-
-      %{goal | spaces: [plan_space]}
+      %{goal | spaces: [space]}
     end)
   end
 
@@ -138,93 +129,6 @@ defmodule M4w.Ops do
   end
 
   def delete_goal(%Goal{} = goal), do: Repo.delete(goal)
-
-  def generate_goal_plan(%Goal{} = goal) do
-    request = goal_plan_request(goal)
-    opts = [ops_space_id: goal.plan_space_id]
-
-    case M4w.Design.generate_blueprint(request, opts) do
-      {:ok, blueprint, _generation} ->
-        case blueprint_to_goal_space_drafts(blueprint) do
-          [] -> synthesize_goal_plan(goal)
-          drafts -> drafts
-        end
-
-      {:error, _reason, _generation} ->
-        synthesize_goal_plan(goal)
-    end
-  end
-
-  defp goal_plan_request(%Goal{} = goal) do
-    %{
-      system_prompt: goal_plan_system_prompt(),
-      user_prompt: goal_plan_user_prompt(goal),
-      tool_name: "emit_goal_plan",
-      tool_description: "Emit the drafted set of Spaces needed to reach this Goal.",
-      schema: GoalPlanSchema.schema()
-    }
-  end
-
-  defp goal_plan_system_prompt do
-    """
-    Du designar en plan för vilka Spaces som behövs för att nå ett mål i \
-    "Code for work". Varje Space är ett eget arbetsområde med sitt eget \
-    delmål (subgoal) som tillsammans, i ordning, uppfyller huvudmålet.
-
-    Föreslå minst ett och högst åtta Spaces. Skriv allt på svenska.
-
-    Svara enbart genom att anropa verktyget — inga fritextsvar.
-    """
-  end
-
-  defp goal_plan_user_prompt(%Goal{} = goal) do
-    """
-    Mål: #{goal.title}
-
-    Beskrivning: #{if goal.description in [nil, ""], do: "(ingen beskrivning angiven)", else: goal.description}
-    """
-  end
-
-  defp blueprint_to_goal_space_drafts(%{"spaces" => spaces})
-       when is_list(spaces) and spaces != [] do
-    spaces
-    |> Enum.with_index()
-    |> Enum.map(fn {space, index} ->
-      %{temp_id: "-#{index + 1}", name: space["name"], subgoal: space["subgoal"]}
-    end)
-  end
-
-  defp blueprint_to_goal_space_drafts(_blueprint), do: []
-
-  defp synthesize_goal_plan(%Goal{}) do
-    [%{temp_id: "-1", name: "Implementation", subgoal: "Målet är genomfört"}]
-  end
-
-  def confirm_goal_plan(%Goal{} = goal, %User{} = user, spaces_attrs)
-      when is_list(spaces_attrs) do
-    Repo.transaction(fn ->
-      spaces =
-        Enum.map(spaces_attrs, fn attrs ->
-          name = Map.get(attrs, "name") || Map.get(attrs, :name)
-          subgoal = Map.get(attrs, "subgoal") || Map.get(attrs, :subgoal) || ""
-
-          {:ok, space} =
-            create_space_for_user(user, %{"name" => name, "category" => "Code", "goal" => subgoal})
-
-          {:ok, space} = space |> Space.changeset(%{goal_id: goal.id}) |> Repo.update()
-          space
-        end)
-
-      if goal.plan_space_id do
-        goal.plan_space_id
-        |> get_space!()
-        |> Space.changeset(%{status: "done"})
-        |> Repo.update!()
-      end
-
-      spaces
-    end)
-  end
 
   # ---------------- Spaces ----------------
 
@@ -382,10 +286,9 @@ defmodule M4w.Ops do
   defp sync_room_entities_from_legacy_param(_room, nil), do: :ok
 
   defp sync_room_entities_from_legacy_param(%Room{} = room, %{"kind" => kind} = legacy) do
-    case list_room_entities(room) do
-      [] -> create_legacy_entities(room, kind, legacy["label"])
-      entities -> update_primary_entity_label(entities, legacy["label"])
-    end
+    unlink_room_entities(room)
+    create_legacy_entities(room, kind, legacy["label"])
+    :ok
   end
 
   defp sync_room_entities_from_legacy_param(_room, _legacy), do: :ok
@@ -395,33 +298,54 @@ defmodule M4w.Ops do
   # same string as the `name` of both Entity rows makes them look like
   # duplicates in the map (same text, two icons). The AI side gets a plain
   # "AI" name; the human side keeps the descriptive label.
+  #
+  # Roles are looked up by (space, kind, name) rather than always created
+  # fresh, so the same role (e.g. "Backend-utvecklare") staffing several
+  # Rooms in one Space resolves to one Entity shown in each Room, instead of
+  # a new duplicate person per Room.
   defp create_legacy_entities(room, "mixed", label) do
-    create_entity(room, %{
-      "kind" => "ai",
-      "agent_type" => "claude_code",
-      "name" => "AI"
-    })
+    link_entity_to_room(
+      find_or_create_entity(room.space_id, "ai", "AI", %{"agent_type" => "claude_code"}),
+      room
+    )
 
-    create_entity(room, %{"kind" => "human", "name" => label || "Person"})
+    link_entity_to_room(find_or_create_entity(room.space_id, "human", label || "Person"), room)
   end
 
   defp create_legacy_entities(room, "human", label) do
-    create_entity(room, %{"kind" => "human", "name" => label || "Person"})
+    link_entity_to_room(find_or_create_entity(room.space_id, "human", label || "Person"), room)
   end
 
   defp create_legacy_entities(room, _kind, label) do
-    create_entity(room, %{
-      "kind" => "ai",
-      "agent_type" => "claude_code",
-      "name" => label || "Agent"
-    })
+    link_entity_to_room(
+      find_or_create_entity(room.space_id, "ai", label || "Agent", %{
+        "agent_type" => "claude_code"
+      }),
+      room
+    )
   end
 
-  defp update_primary_entity_label(_entities, nil), do: :ok
+  defp find_or_create_entity(space_id, kind, name, extra_attrs \\ %{}) do
+    case Repo.get_by(Entity, space_id: space_id, kind: kind, name: name) do
+      nil ->
+        attrs = Map.merge(extra_attrs, %{"space_id" => space_id, "kind" => kind, "name" => name})
+        {:ok, entity} = %Entity{} |> Entity.changeset(attrs) |> Repo.insert()
+        entity
 
-  defp update_primary_entity_label(entities, label) do
-    primary = Enum.find(entities, &(&1.kind == "ai")) || List.first(entities)
-    update_entity(primary, %{"name" => label})
+      entity ->
+        entity
+    end
+  end
+
+  defp link_entity_to_room(%Entity{id: entity_id}, %Room{id: room_id}) do
+    Repo.insert_all("ops_room_entities", [%{room_id: room_id, entity_id: entity_id}],
+      on_conflict: :nothing,
+      conflict_target: [:room_id, :entity_id]
+    )
+  end
+
+  defp unlink_room_entities(%Room{id: room_id}) do
+    Repo.delete_all(from(re in "ops_room_entities", where: re.room_id == ^room_id))
   end
 
   def delete_room(%Room{} = room), do: Repo.delete(room)
@@ -430,20 +354,23 @@ defmodule M4w.Ops do
 
   def list_room_entities(%Room{id: room_id}) do
     Entity
-    |> where([e], e.room_id == ^room_id)
+    |> join(:inner, [e], re in "ops_room_entities", on: re.entity_id == e.id)
+    |> where([e, re], re.room_id == ^room_id)
     |> order_by([e], asc: e.id)
     |> Repo.all()
   end
 
   def get_entity!(id) do
-    Entity
-    |> Repo.get!(to_integer(id))
-    |> Repo.preload(:room)
+    Repo.get!(Entity, to_integer(id))
   end
 
   def create_entity(%Room{} = room, attrs) do
-    attrs = Map.put(attrs, "room_id", room.id)
-    %Entity{} |> Entity.changeset(attrs) |> Repo.insert()
+    attrs = Map.put(attrs, "space_id", room.space_id)
+
+    with {:ok, entity} <- %Entity{} |> Entity.changeset(attrs) |> Repo.insert() do
+      link_entity_to_room(entity, room)
+      {:ok, entity}
+    end
   end
 
   def update_entity(%Entity{} = entity, attrs) do
@@ -491,7 +418,8 @@ defmodule M4w.Ops do
   def list_ai_runnable_items(limit \\ 5) do
     Item
     |> join(:inner, [i], r in Room, on: i.room_id == r.id)
-    |> join(:inner, [i, r], e in Entity, on: e.room_id == r.id and e.kind == "ai")
+    |> join(:inner, [i, r], re in "ops_room_entities", on: re.room_id == r.id)
+    |> join(:inner, [i, r, re], e in Entity, on: e.id == re.entity_id and e.kind == "ai")
     |> where([i], i.state == "waiting")
     |> distinct([i], i.id)
     |> order_by([i], asc: i.id)
@@ -728,13 +656,21 @@ defmodule M4w.Ops do
 
   defp design_system_prompt do
     """
-    Du designar en pipeline av Rooms för ett Space i "MUD for Work": varje \
+    Du designar en pipeline av Rooms för ett Space i "Code for work": varje \
     Room är en station där en typ av arbete sker innan det flyttas vidare. \
     Rummen bildar en ordnad kedja, först till sist. Varje Room har ett namn, \
     vem eller vad som arbetar där (entity_kind: ai/human/mixed + \
     entity_label), ett subgoal (vad som måste vara sant för att rummets \
     arbete ska anses klart) och en key (ett kort, läsbart villkor för när \
     rummet öppnas, t.ex. "öppnar när underlag är komplett").
+
+    entity_label representerar en roll i ett litet, komplett team som \
+    tillsammans äger hela målet i det här Spacet — t.ex. \
+    "Frontend-utvecklare", "Backend-utvecklare", "Databas", "DevOps", \
+    "Testare" eller "Dokumentatör". Återanvänd exakt samma entity_label \
+    (och entity_kind) för samma roll i flera rum när den rollen jobbar i \
+    fler än en station — det gör att samma teammedlem visas i varje rum den \
+    är delaktig i, istället för att en ny person hittas på per rum.
 
     Designa minst tre och högst åtta rum som tillsammans bildar en \
     sammanhängande, meningsfull pipeline för målet och mailkontexten du får. \

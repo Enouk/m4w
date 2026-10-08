@@ -12,7 +12,7 @@ defmodule M4w.Ops.Room do
 
     belongs_to :space, Space
     has_many :items, Item
-    has_many :entities, Entity
+    many_to_many :entities, Entity, join_through: "ops_room_entities"
 
     timestamps(type: :utc_datetime)
   end
