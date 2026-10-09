@@ -125,6 +125,18 @@ defmodule M4w.Mail.StalwartPoller do
 
         []
     end
+  rescue
+    # One malformed mail (e.g. a value the DB rejects) must not crash the
+    # poller: it would retry the same mail on every restart until the
+    # supervisor gives up and takes the whole app down. Leave it unseen so it
+    # is retried once the cause is fixed, and carry on with the rest.
+    exception ->
+      Logger.error(
+        "StalwartPoller: failed to import mail #{email["id"]}: " <>
+          Exception.format(:error, exception, __STACKTRACE__)
+      )
+
+      []
   end
 
   defp download_attachment(

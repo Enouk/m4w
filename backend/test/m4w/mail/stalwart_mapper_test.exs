@@ -25,7 +25,8 @@ defmodule M4w.Mail.StalwartMapperTest do
              "fromEmail" => "anna@example.com",
              "subject" => "Fråga om offert",
              "body" => ["Hej!", "Kan ni skicka en offert?", "Mvh Anna"],
-             "date" => "2026-09-06T10:15:00Z"
+             "date" => "2026-09-06T10:15:00Z",
+             "attachments" => []
            }
   end
 
@@ -61,7 +62,8 @@ defmodule M4w.Mail.StalwartMapperTest do
              "fromEmail" => nil,
              "subject" => "Hej",
              "body" => [],
-             "date" => "2026-09-06T10:15:00Z"
+             "date" => "2026-09-06T10:15:00Z",
+             "attachments" => []
            }
   end
 end
