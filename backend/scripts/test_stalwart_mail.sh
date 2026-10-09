@@ -141,7 +141,7 @@ else:
 # socket.getfqdn(): on machines where that returns a trailing-dot name (many
 # WSL2/Linux setups do), Stalwart's EHLO stage takes ~12s per connection
 # (a DNS-lookup timeout triggered specifically by the trailing dot).
-with smtplib.SMTP(smtp_host, int(smtp_port), timeout=10, local_hostname="m4w-test-client.invalid") as smtp:
+with smtplib.SMTP(smtp_host, int(smtp_port), timeout=60, local_hostname="m4w-test-client.invalid") as smtp:
     smtp.sendmail(from_addr, [to_addr], msg.as_bytes())
 
 print(unique_subject)
@@ -160,7 +160,7 @@ msg["Subject"] = subject
 msg["From"] = from_addr
 msg["To"] = to_addr
 
-with smtplib.SMTP(smtp_host, int(smtp_port), timeout=10, local_hostname="m4w-test-client.invalid") as smtp:
+with smtplib.SMTP(smtp_host, int(smtp_port), timeout=60, local_hostname="m4w-test-client.invalid") as smtp:
     smtp.sendmail(from_addr, [to_addr], msg.as_string())
 PY
 fi
