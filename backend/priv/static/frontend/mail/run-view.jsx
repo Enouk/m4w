@@ -1,7 +1,7 @@
 // Run-time view: Pipeline, Inbox (Live + Replay), Outbox.
 
 const SPACE_TABS_BY_CATEGORY = {
-  Board: [{ label: "Möten", value: "moten" }, { label: "Beslut", value: "beslut" }],
+  Board: [{ label: "Möten", value: "moten" }, { label: "Beslut", value: "beslut" }, { label: "Uppgifter", value: "uppgifter" }, { label: "Ekonomi", value: "ekonomi" }],
   Accounting: [{ label: "Efterlevnad", value: "efterlevnad" }, { label: "Verifikationer", value: "verifikationer" }]
 };
 
@@ -310,10 +310,10 @@ const RoomChip = ({ name }) => <span className="room-chip">{name}</span>;
 
 const ARTIFACT_STATUS = {
   signerad: "Signerad", skickad: "Skickad", utkast: "Utkast", arkiverad: "Arkiverad",
-  exporterad: "Exporterad", uppdaterad: "Uppdaterad", bekräftad: "Bekräftad", granskas: "Granskas"
+  exporterad: "Exporterad", godkänd: "Godkänd", uppdaterad: "Uppdaterad", bekräftad: "Bekräftad", granskas: "Granskas"
 };
 const ARTIFACT_TONE = {
-  signerad: "done", bekräftad: "done", exporterad: "done", arkiverad: "done",
+  signerad: "done", godkänd: "done", bekräftad: "done", exporterad: "done", arkiverad: "done",
   skickad: "send", uppdaterad: "send",
   utkast: "neutral", granskas: "amber"
 };
@@ -336,6 +336,10 @@ const ArtifactsTab = ({ space, roomsById }) => {
       <ul className="artifact-grid">
         {items.map((a) => (
           <li key={a.id} className="artifact-card">
+            {a.url && (
+              <a className="artifact-link" href={a.url} target="_blank" rel="noopener noreferrer"
+                 aria-label={`Öppna ${a.title}`} />
+            )}
             <div className="artifact-top">
               <span className="artifact-ext" data-kind={a.kind}>{a.kind}</span>
               {roomsById[a.roomId] && <RoomChip name={roomsById[a.roomId].name} />}
@@ -366,9 +370,13 @@ const MEETING_STATUS_LABEL = { planerat: "Planerat", genomfört: "Genomfört", p
 
 const MeetingsTab = ({ space }) => {
   const [meetings, setMeetings] = React.useState(null);
+  const [actions, setActions] = React.useState([]);
+  const [finance, setFinance] = React.useState([]);
 
   React.useEffect(() => {
     window.API.meetings.listForSpace(space.id).then(setMeetings);
+    window.API.actions.listForSpace(space.id).then(setActions);
+    window.API.finance.listForSpace(space.id).then(setFinance);
   }, [space.id]);
 
   if (meetings === null) return null;
@@ -385,6 +393,8 @@ const MeetingsTab = ({ space }) => {
           const absent = m.attendees.filter((a) => a.present === false).length;
           const total = m.attendees.length;
           const decided = m.status === "genomfört";
+          const meetingActions = actions.filter((a) => a.meetingId === m.id);
+          const meetingFinance = finance.filter((f) => f.meetingId === m.id);
           return (
             <li key={m.id} className="meeting-card">
               <div className="meeting-head">
@@ -395,6 +405,14 @@ const MeetingsTab = ({ space }) => {
                   <span className="meeting-title">{m.title}</span>
                 </div>
                 <div className="meeting-sub mono-sub">{m.location}</div>
+              </div>
+              <div className="meeting-agenda">
+                <span className="meeting-col-label">Dagordning</span>
+                {m.agenda ? (
+                  <FinanceDocLink doc={m.agenda} />
+                ) : (
+                  <span className="decision-empty">Ingen dagordning uppladdad.</span>
+                )}
               </div>
 
               <div className="meeting-cols">
@@ -449,10 +467,293 @@ const MeetingsTab = ({ space }) => {
                     </div>
                   )}
                 </div>
+
+                <div className="meeting-col meeting-col-wide">
+                  <div className="meeting-col-label">
+                    Uppgifter
+                    {meetingActions.length > 0 && (
+                      <span className="meeting-col-count">
+                        {meetingActions.filter((a) => a.status === "klar").length} av{" "}
+                        {meetingActions.length} klara
+                      </span>
+                    )}
+                  </div>
+                  {meetingActions.length ? (
+                    <ul className="decision-list">
+                      {meetingActions.map((a) => (
+                        <li key={a.id} className="decision-row meeting-action" data-status={a.status}>
+                          <div className="decision-text">{a.title}</div>
+                          <div className="decision-meta">
+                            <span className="action-assignee">{a.assignee}</span>
+                            {a.assigneeRole && <span className="mono-sub">{a.assigneeRole}</span>}
+                            <span className="dot-sep">·</span>
+                            <span className="action-status-tag" data-status={a.status}>
+                              {ACTION_STATUS_LABEL[a.status] || a.status}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="decision-empty">Inga uppgifter utdelade.</div>
+                  )}
+                </div>
+
+                <div className="meeting-col meeting-col-wide">
+                  <div className="meeting-col-label">
+                    Ekonomi
+                    {meetingFinance.length > 0 && (
+                      <span className="meeting-col-count">{meetingFinance.length} poster</span>
+                    )}
+                  </div>
+                  {meetingFinance.length ? (
+                    <ul className="decision-list">
+                      {meetingFinance.map((f) => (
+                        <li key={f.id} className="decision-row meeting-finance" data-status={f.status}>
+                          <div className="finance-row-line">
+                            <div className="decision-text">{f.title}</div>
+                            <span className="finance-amount" data-kind={f.kind}>
+                              {signedMoney(f)}
+                            </span>
+                          </div>
+                          <div className="decision-meta">
+                            <span className="finance-kind mono-sub">{FINANCE_KIND_LABEL[f.kind] || f.kind}</span>
+                            {f.note && (
+                              <>
+                                <span className="dot-sep">·</span>
+                                <span className="mono-sub">{f.note}</span>
+                              </>
+                            )}
+                            <span className="dot-sep">·</span>
+                            <span className="action-status-tag finance-status" data-fstatus={f.status}>
+                              {FINANCE_STATUS_LABEL[f.status] || f.status}
+                            </span>
+                          </div>
+                          <FinanceDocLink doc={f.document} />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="decision-empty">Ingen ekonomisk information.</div>
+                  )}
+                </div>
               </div>
             </li>
           );
         })}
+      </ul>
+    </div>
+  );
+};
+
+const ACTION_STATUS_LABEL = { att_gora: "Att göra", pagar: "Pågår", klar: "Klar" };
+const ACTION_STATUS_ORDER = ["att_gora", "pagar", "klar"];
+
+const ActionsTab = ({ space }) => {
+  const [actions, setActions] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.actions.listForSpace(space.id).then(setActions);
+  }, [space.id]);
+
+  if (actions === null) return null;
+
+  const setStatus = (action, status) => {
+    const prev = actions;
+    setActions((list) => list.map((a) => (a.id === action.id ? { ...a, status } : a)));
+    window.API.actions.update(space.id, action.id, { status }).catch(() => setActions(prev));
+  };
+
+  // Gruppera per styrelsemöte, senaste mötet överst (som Beslut-tidslinjen).
+  const groups = [];
+  actions.forEach((a) => {
+    const key = a.meetingId || "none";
+    let g = groups.find((x) => x.key === key);
+    if (!g) {
+      g = { key, title: a.meetingTitle, date: a.meetingDate, items: [] };
+      groups.push(g);
+    }
+    g.items.push(a);
+  });
+  groups.sort((x, y) => (y.date || "").localeCompare(x.date || ""));
+
+  const now = Date.now();
+
+  return (
+    <div className="decisions-tab">
+      <div className="meetings-intro">
+        Uppgifter som delats ut på styrelsemöten — vem som ansvarar, deadline och status, ordnade
+        efter mötet de kom från.
+      </div>
+      <ul className="register-list">
+        {groups.flatMap((g) => {
+          const doneCount = g.items.filter((a) => a.status === "klar").length;
+          return [
+            <li key={`m-${g.key}`} className="register-row register-group">
+              <div className="register-date mono-sub">{g.date ? window.formatDateTime(g.date) : ""}</div>
+              <div className="register-node" aria-hidden="true">
+                <span className="register-dot register-dot-meeting" />
+              </div>
+              <div className="register-group-head">
+                <span className="register-group-title">{g.title || "Utan möte"}</span>
+                <span className="mono-sub">
+                  {doneCount} av {g.items.length} klara
+                </span>
+              </div>
+            </li>,
+            ...g.items.map((a) => {
+              const overdue = a.status !== "klar" && a.dueDate && new Date(a.dueDate).getTime() < now;
+              return (
+                <li key={a.id} className="register-row" data-status={a.status}>
+                  <div className="register-date mono-sub" />
+                  <div className="register-node" aria-hidden="true">
+                    <span className="register-dot" data-status={a.status} />
+                  </div>
+                  <div className="register-body action-body">
+                    <div className="action-main">
+                      <div className="register-text action-title">{a.title}</div>
+                      <div className="register-meta">
+                        <span className="action-assignee">{a.assignee}</span>
+                        {a.assigneeRole && <span className="mono-sub">{a.assigneeRole}</span>}
+                        {a.dueDate && (
+                          <>
+                            <span className="dot-sep">·</span>
+                            <span className="mono-sub action-due" data-overdue={String(!!overdue)}>
+                              Till {window.formatDateTime(a.dueDate)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <select
+                      className="action-status"
+                      data-status={a.status}
+                      value={a.status}
+                      onChange={(e) => setStatus(a, e.target.value)}
+                      aria-label={`Status för ${a.title}`}
+                    >
+                      {ACTION_STATUS_ORDER.map((st) => (
+                        <option key={st} value={st}>
+                          {ACTION_STATUS_LABEL[st]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </li>
+              );
+            })
+          ];
+        })}
+        {actions.length === 0 && <li className="decision-empty">Inga uppgifter utdelade ännu.</li>}
+      </ul>
+    </div>
+  );
+};
+
+const FINANCE_STATUS_LABEL = { att_godkanna: "Att godkänna", godkand: "Godkänd", avslagen: "Avslagen" };
+const FINANCE_KIND_LABEL = {
+  budget: "Budget",
+  utgift: "Utgift",
+  intakt: "Intäkt",
+  balansrakning: "Balansräkning",
+  resultatrakning: "Resultaträkning",
+  arsredovisning: "Årsredovisning"
+};
+
+const signedMoney = (e) =>
+  `${e.kind === "intakt" ? "+" : e.kind === "utgift" ? "−" : ""}${formatMoney(e.amount, e.currency)}`;
+
+const FinanceDocLink = ({ doc }) =>
+  doc ? (
+    <a className="finance-doc" href={doc.url} target="_blank" rel="noopener noreferrer">
+      <span className="finance-doc-kind">{doc.kind}</span>
+      {doc.title}
+      {doc.size && <span className="mono-sub">{doc.size}</span>}
+    </a>
+  ) : null;
+
+const formatMoney = (amount, currency) =>
+  `${new Intl.NumberFormat("sv-SE").format(amount)} ${currency === "SEK" || !currency ? "kr" : currency}`;
+
+const FinanceTab = ({ space }) => {
+  const [entries, setEntries] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.finance.listForSpace(space.id).then(setEntries);
+  }, [space.id]);
+
+  if (entries === null) return null;
+
+  // Gruppera per styrelsemöte, senaste mötet överst (som Beslut och Uppgifter).
+  const groups = [];
+  entries.forEach((e) => {
+    const key = e.meetingId || "none";
+    let g = groups.find((x) => x.key === key);
+    if (!g) {
+      g = { key, title: e.meetingTitle, date: e.meetingDate, items: [] };
+      groups.push(g);
+    }
+    g.items.push(e);
+  });
+  groups.sort((x, y) => (y.date || "").localeCompare(x.date || ""));
+
+  // Netto av godkända poster: intäkter minus utgifter (budget och bokslutsrapporter räknas inte).
+  const net = (items) =>
+    items
+      .filter((e) => e.status === "godkand" && (e.kind === "utgift" || e.kind === "intakt"))
+      .reduce((sum, e) => sum + (e.kind === "intakt" ? e.amount : -e.amount), 0);
+
+  return (
+    <div className="decisions-tab">
+      <div className="meetings-intro">
+        Ekonomisk information från styrelsemöten — budgetar, utgifter och intäkter som behandlats,
+        ordnade efter mötet de kom från.
+      </div>
+      <ul className="register-list">
+        {groups.flatMap((g) => [
+          <li key={`m-${g.key}`} className="register-row register-group">
+            <div className="register-date mono-sub">{g.date ? window.formatDateTime(g.date) : ""}</div>
+            <div className="register-node" aria-hidden="true">
+              <span className="register-dot register-dot-meeting" />
+            </div>
+            <div className="register-group-head">
+              <span className="register-group-title">{g.title || "Utan möte"}</span>
+              <span className="mono-sub">Netto godkänt: {formatMoney(net(g.items), g.items[0].currency)}</span>
+            </div>
+          </li>,
+          ...g.items.map((e) => (
+            <li key={e.id} className="register-row" data-status={e.status}>
+              <div className="register-date mono-sub" />
+              <div className="register-node" aria-hidden="true">
+                <span className="register-dot" data-fstatus={e.status} />
+              </div>
+              <div className="register-body action-body">
+                <div className="action-main">
+                  <div className="register-text action-title">{e.title}</div>
+                  <div className="register-meta">
+                    <span className="finance-kind mono-sub">{FINANCE_KIND_LABEL[e.kind] || e.kind}</span>
+                    {e.note && (
+                      <>
+                        <span className="dot-sep">·</span>
+                        <span className="mono-sub">{e.note}</span>
+                      </>
+                    )}
+                  </div>
+                  <FinanceDocLink doc={e.document} />
+                </div>
+                <div className="finance-side">
+                  <span className="finance-amount" data-kind={e.kind}>
+                    {signedMoney(e)}
+                  </span>
+                  <span className="action-status-tag finance-status" data-fstatus={e.status}>
+                    {FINANCE_STATUS_LABEL[e.status] || e.status}
+                  </span>
+                </div>
+              </div>
+            </li>
+          ))
+        ])}
+        {entries.length === 0 && <li className="decision-empty">Ingen ekonomisk information ännu.</li>}
       </ul>
     </div>
   );
@@ -467,32 +768,56 @@ const DecisionsTab = ({ space }) => {
 
   if (all === null) return null;
 
+  // Gruppera per styrelsemöte, senaste mötet överst (som Uppgifter-tidslinjen).
+  const groups = [];
+  all.forEach((d) => {
+    let g = groups.find((x) => x.key === d.meetingId);
+    if (!g) {
+      g = { key: d.meetingId, title: d.meetingTitle, date: d.date, items: [] };
+      groups.push(g);
+    }
+    g.items.push(d);
+  });
+  groups.sort((x, y) => (y.date || "").localeCompare(x.date || ""));
+
   return (
     <div className="decisions-tab">
       <div className="meetings-intro">
-        Beslutsregister — alla beslut som fattats, spårbara till mötet de togs på.
+        Beslutsregister — alla beslut som fattats, ordnade efter styrelsemötet de togs på.
       </div>
       <ul className="register-list">
-        {all.map((d) => (
-          <li key={d.id} className="register-row">
-            <div className="register-date mono-sub">{window.formatDateTime(d.date)}</div>
+        {groups.flatMap((g) => [
+          <li key={`m-${g.key}`} className="register-row register-group">
+            <div className="register-date mono-sub">{window.formatDateTime(g.date)}</div>
             <div className="register-node" aria-hidden="true">
-              <span className="register-dot" data-outcome={d.outcome} />
+              <span className="register-dot register-dot-meeting" />
             </div>
-            <div className="register-body">
-              <div className="register-text">{d.text}</div>
-              <div className="register-meta">
-                <span className="decision-outcome" data-outcome={d.outcome}>
-                  {d.outcome}
-                </span>
-                <span className="dot-sep">·</span>
-                <span className="mono-sub">{d.votes}</span>
-                <span className="dot-sep">·</span>
-                <span className="register-meeting">{d.meetingTitle}</span>
+            <div className="register-group-head">
+              <span className="register-group-title">{g.title}</span>
+              <span className="mono-sub">
+                {g.items.length} fattade
+              </span>
+            </div>
+          </li>,
+          ...g.items.map((d) => (
+            <li key={d.id} className="register-row">
+              <div className="register-date mono-sub" />
+              <div className="register-node" aria-hidden="true">
+                <span className="register-dot" data-outcome={d.outcome} />
               </div>
-            </div>
-          </li>
-        ))}
+              <div className="register-body">
+                <div className="register-text">{d.text}</div>
+                <div className="register-meta">
+                  <span className="decision-outcome" data-outcome={d.outcome}>
+                    {d.outcome}
+                  </span>
+                  <span className="dot-sep">·</span>
+                  <span className="mono-sub">{d.votes}</span>
+                </div>
+              </div>
+            </li>
+          ))
+        ])}
         {all.length === 0 && <li className="decision-empty">Inga beslut loggade ännu.</li>}
       </ul>
     </div>
@@ -815,6 +1140,8 @@ const RunView = ({ space, tab, onSetTab, onOpenItem, onOpenMail, onGoToDesign })
 
       {effectiveTab === "moten" && <MeetingsTab space={space} />}
       {effectiveTab === "beslut" && <DecisionsTab space={space} />}
+      {effectiveTab === "uppgifter" && <ActionsTab space={space} />}
+      {effectiveTab === "ekonomi" && <FinanceTab space={space} />}
       {effectiveTab === "efterlevnad" && <ComplianceTab space={space} />}
       {effectiveTab === "verifikationer" && <VerificationsTab space={space} roomsById={roomsById} />}
       {effectiveTab === "pipeline" && (

@@ -7,10 +7,12 @@
 alias M4w.Repo
 
 alias M4w.Ops.{
+  Action,
   Artifact,
   ComplianceCheck,
   Contact,
   Decision,
+  FinanceEntry,
   Item,
   Mail,
   Meeting,
@@ -56,16 +58,18 @@ defmodule Seed.Helpers do
   end
 
   defp seed_entities!(room, "human", label) do
-    Repo.insert!(%Entity{room_id: room.id, kind: "human", name: label || "Person"})
+    entity!(room, %Entity{kind: "human", name: label || "Person"})
   end
 
   defp seed_entities!(room, _kind, label) do
-    Repo.insert!(%Entity{
-      room_id: room.id,
-      kind: "ai",
-      agent_type: "claude_code",
-      name: label || "Agent"
-    })
+    entity!(room, %Entity{kind: "ai", agent_type: "claude_code", name: label || "Agent"})
+  end
+
+  # Entities are Space-scoped and linked to Rooms through ops_room_entities.
+  defp entity!(room, entity) do
+    entity = Repo.insert!(%{entity | space_id: room.space_id})
+    Repo.insert_all("ops_room_entities", [%{room_id: room.id, entity_id: entity.id}])
+    entity
   end
 
   def item!(room, title, meta, state) do
@@ -253,12 +257,27 @@ it_protokoll =
 _it_beslutslogg =
   Seed.Helpers.item!(r_beslutslogg, "12 beslut loggade i år", "senaste: budget 2026", "done")
 
+# Dagordning (PDF) för kommande styrelsemöte — byggs i Agenda-rummet och bifogas kallelsen.
+agenda_12dec =
+  Repo.insert!(%Artifact{
+    space_id: styrelse.id,
+    room_id: r_agenda.id,
+    title: "Dagordning styrelsemöte 12 dec 2025",
+    kind: "PDF",
+    status: "godkänd",
+    created_by: "Karin Lindqvist",
+    size: "47 kB",
+    url: "/frontend/mail/docs/dagordning-styrelsemote-2025-12-12.pdf",
+    occurred_at: Seed.Helpers.ago(-1)
+  })
+
 Repo.insert!(%Meeting{
   space_id: styrelse.id,
   title: "Styrelsemöte 12 dec 2025",
   occurred_at: Seed.Helpers.ago(-2),
   status: "planerat",
   location: "Digitalt · Teams",
+  agenda_id: agenda_12dec.id,
   attendees: [
     %{"name" => "Karin Lindqvist", "role" => "Ordförande", "present" => nil},
     %{"name" => "Erik Wennberg", "role" => "Ledamot", "present" => nil},
@@ -340,6 +359,80 @@ Repo.insert!(%Decision{
   outcome: "Bordlagt",
   votes: "—"
 })
+
+for {title, assignee, role, due_days, status} <- [
+      {"Ta fram rekryteringsunderlag och kravprofil för ny VD", "Karin Lindqvist", "Ordförande",
+       -2, "pagar"},
+      {"Upphandla rekryteringsfirma — offerter från tre bolag", "Erik Wennberg", "Ledamot", -2,
+       "att_gora"},
+      {"Skicka in budget 2026 till banken", "Maria Åkesson", "VD", -2, "klar"},
+      {"Återkomma med förslag på utdelningsnivå", "Maria Åkesson", "VD", -2, "att_gora"},
+      {"Bekräfta revisionsplan med BDO", "Anna Söderberg", "Ledamot", -2, "pagar"}
+    ] do
+  Repo.insert!(%Action{
+    space_id: styrelse.id,
+    meeting_id: mote_14nov.id,
+    title: title,
+    assignee: assignee,
+    assignee_role: role,
+    due_at: Seed.Helpers.ago(due_days),
+    status: status
+  })
+end
+
+for {title, kind, amount, note, status, meeting} <- [
+      {"Budget 2026 — total omslutning", "budget", 48_500_000, "Fastställd ram", "godkand",
+       mote_14nov},
+      {"Rekryteringsfirma för ny VD", "utgift", 450_000, "Offert från tre bolag", "att_godkanna",
+       mote_14nov},
+      {"Revisionsarvode BDO", "utgift", 320_000, "Enligt revisionsplan", "godkand", mote_14nov},
+      {"Utdelning till aktieägare", "utgift", 5_000_000, "Bordlagd till december", "avslagen",
+       mote_3okt},
+      {"Försäljning av dotterbolagsandel", "intakt", 2_400_000, "Engångsintäkt Q4", "godkand",
+       mote_3okt}
+    ] do
+  Repo.insert!(%FinanceEntry{
+    space_id: styrelse.id,
+    meeting_id: meeting.id,
+    title: title,
+    kind: kind,
+    amount: amount,
+    note: note,
+    status: status
+  })
+end
+
+# Balans- och resultaträkning exporterade som PDF från ekonomisystemet (inför styrelsemötet).
+for {title, kind, amount, note, file, size} <- [
+      {"Balansräkning 2025-10-31", "balansrakning", 21_600_000, "Balansomslutning",
+       "balansrakning-2025.pdf", "3 kB"},
+      {"Resultaträkning jan–okt 2025", "resultatrakning", 3_100_000, "Periodens resultat",
+       "resultatrakning-2025.pdf", "3 kB"}
+    ] do
+  artifact =
+    Repo.insert!(%Artifact{
+      space_id: styrelse.id,
+      room_id: nil,
+      title: title,
+      kind: "PDF",
+      status: "uppladdad",
+      created_by: "Ekonomisystemet",
+      size: size,
+      url: "/frontend/mail/docs/" <> file,
+      occurred_at: Seed.Helpers.ago(29)
+    })
+
+  Repo.insert!(%FinanceEntry{
+    space_id: styrelse.id,
+    meeting_id: mote_14nov.id,
+    artifact_id: artifact.id,
+    title: title,
+    kind: kind,
+    amount: amount,
+    note: note,
+    status: "att_godkanna"
+  })
+end
 
 Seed.Helpers.artifact!(
   styrelse,
@@ -727,6 +820,377 @@ Seed.Helpers.contact!(styrelse, "Minute-keeper", "Protokoll & beslutslogg", nil,
   "Beslutslogg"
 ])
 
+# ================== Space: Bolagsstämma (Gimic) ==================
+
+stamma =
+  Repo.insert!(%Space{
+    name: "Bolagsstämma",
+    address: "bolagsstamma-gimic@m4w.ai",
+    category: "Board",
+    goal:
+      "Driv bolagsstämma från kallelse till signerat och registrerat protokoll med full spårbarhet av beslut."
+  })
+
+link!.(karin, stamma)
+
+s_kallelse =
+  Seed.Helpers.room!(
+    stamma,
+    "Kallelse",
+    0,
+    "ai",
+    "AI · Convocation Agent",
+    "Kallelse utskickad till alla aktieägare",
+    "öppnar när styrelsen beslutat att kalla"
+  )
+
+s_dagordning =
+  Seed.Helpers.room!(
+    stamma,
+    "Dagordning & underlag",
+    1,
+    "mixed",
+    "AI + Styrelseordförande",
+    "Dagordning och förslag till beslut klara",
+    "öppnar när kallelsen är skickad"
+  )
+
+s_stamma =
+  Seed.Helpers.room!(
+    stamma,
+    "Stämma",
+    2,
+    "human",
+    "Människor",
+    "Stämman genomförd",
+    "öppnar när stämmodatumet inträffar"
+  )
+
+s_protokoll =
+  Seed.Helpers.room!(
+    stamma,
+    "Protokoll & e-signering",
+    3,
+    "mixed",
+    "AI · Minute-keeper + Ordförande",
+    "Protokoll signerat av ordförande och justerare",
+    "öppnar när stämman avslutats"
+  )
+
+s_arkiv =
+  Seed.Helpers.room!(
+    stamma,
+    "Registrering & arkiv",
+    4,
+    "ai",
+    "AI",
+    "Beslut loggade och anmälda till Bolagsverket",
+    "stängd terminalstation"
+  )
+
+_it_s_kallelse =
+  Seed.Helpers.item!(
+    s_kallelse,
+    "Extra bolagsstämma 24 sep",
+    "väntar på svar från 2 av 9 aktieägare",
+    "waiting"
+  )
+
+it_s_dagordning =
+  Seed.Helpers.item!(
+    s_dagordning,
+    "Dagordning extra stämma",
+    "4 punkter, 1 väntar på godkännande",
+    "human"
+  )
+
+_it_s_stamma =
+  Seed.Helpers.item!(s_stamma, "Extra bolagsstämma 24 sep", "pågår nu", "live")
+
+it_s_protokoll =
+  Seed.Helpers.item!(
+    s_protokoll,
+    "Protokoll extra stämma",
+    "väntar på signering från justerare",
+    "human"
+  )
+
+_it_s_arkiv =
+  Seed.Helpers.item!(s_arkiv, "7 stämmobeslut loggade", "senaste: nyemission", "done")
+
+stamma_attendees = fn present ->
+  [
+    %{"name" => "Karin Lindqvist", "role" => "Ordförande", "present" => present},
+    %{"name" => "Therese Lundstedt", "role" => "Aktieägare", "present" => present},
+    %{"name" => "Marcus Nilsson", "role" => "Aktieägare", "present" => present}
+  ]
+end
+
+Repo.insert!(%Meeting{
+  space_id: stamma.id,
+  title: "Extra bolagsstämma 24 sep 2026",
+  occurred_at: Seed.Helpers.ago(-1),
+  status: "planerat",
+  location: "Digitalt · Teams",
+  attendees: stamma_attendees.(nil)
+})
+
+stamma_extra =
+  Repo.insert!(%Meeting{
+    space_id: stamma.id,
+    title: "Extra bolagsstämma 9 sep 2026",
+    occurred_at: Seed.Helpers.ago(30),
+    status: "genomfört",
+    location: "Huvudkontoret, Stockholm",
+    attendees: stamma_attendees.(true)
+  })
+
+for {text, outcome, votes} <- [
+      {"Val av ordförande och justerare", "Bifall", "3 för, 0 emot"},
+      {"Dagordning godkänd", "Bifall", "3 för, 0 emot"},
+      {"Nyemission och ändring av bolagsordning", "Bifall", "3 för, 0 emot"}
+    ] do
+  Repo.insert!(%Decision{meeting_id: stamma_extra.id, text: text, outcome: outcome, votes: votes})
+end
+
+stamma_arsstamma =
+  Repo.insert!(%Meeting{
+    space_id: stamma.id,
+    title: "Ordinarie årsstämma 12 maj 2026",
+    occurred_at: Seed.Helpers.ago(150),
+    status: "genomfört",
+    location: "Huvudkontoret, Stockholm",
+    attendees: stamma_attendees.(true)
+  })
+
+for {text, outcome, votes} <- [
+      {"Resultat- och balansräkning fastställd", "Bifall", "3 för, 0 emot"},
+      {"Utdelning bordlagd till extra stämma", "Bordlagt", "—"},
+      {"Ansvarsfrihet för styrelsen", "Bifall", "2 för, 1 avstod"},
+      {"Val av styrelse och revisor", "Bifall", "3 för, 0 emot"}
+    ] do
+  Repo.insert!(%Decision{
+    meeting_id: stamma_arsstamma.id,
+    text: text,
+    outcome: outcome,
+    votes: votes
+  })
+end
+
+Seed.Helpers.artifact!(
+  stamma,
+  s_kallelse,
+  "Kallelse till extra bolagsstämma",
+  "PDF",
+  "skickad",
+  "Convocation Agent",
+  "88 kB",
+  Seed.Helpers.ago(15)
+)
+
+Seed.Helpers.artifact!(
+  stamma,
+  s_kallelse,
+  "Fullmaktsmall",
+  "DOCX",
+  "mall",
+  "Convocation Agent",
+  "31 kB",
+  Seed.Helpers.ago(15)
+)
+
+Seed.Helpers.artifact!(
+  stamma,
+  s_dagordning,
+  "Dagordning — extra bolagsstämma",
+  "DOCX",
+  "utkast",
+  "Ordförande",
+  "40 kB",
+  Seed.Helpers.ago(10)
+)
+
+Seed.Helpers.artifact!(
+  stamma,
+  s_protokoll,
+  "Protokoll — extra bolagsstämma 9 sep 2026",
+  "PDF",
+  "signerad",
+  "Karin Lindqvist",
+  "176 kB",
+  Seed.Helpers.ago(5)
+)
+
+arsredovisning =
+  Repo.insert!(%Artifact{
+    space_id: stamma.id,
+    room_id: s_arkiv.id,
+    title: "Årsredovisning 2025",
+    kind: "PDF",
+    status: "arkiverad",
+    created_by: "Minute-keeper",
+    size: "3 kB",
+    url: "/frontend/mail/docs/arsredovisning-2025.pdf",
+    occurred_at: Seed.Helpers.ago(150)
+  })
+
+Repo.insert!(%FinanceEntry{
+  space_id: stamma.id,
+  meeting_id: stamma_arsstamma.id,
+  artifact_id: arsredovisning.id,
+  title: "Årsredovisning 2025",
+  kind: "arsredovisning",
+  amount: 3_900_000,
+  note: "Årets resultat",
+  status: "godkand"
+})
+
+Seed.Helpers.artifact!(
+  stamma,
+  s_arkiv,
+  "Beslutslogg bolagsstämmor — export",
+  "CSV",
+  "arkiverad",
+  "Minute-keeper",
+  "12 kB",
+  Seed.Helpers.ago(4)
+)
+
+Seed.Helpers.passage!(
+  stamma,
+  "Kallelse skickad till 9 aktieägare",
+  Seed.Helpers.ago(15, 2)
+)
+
+Seed.Helpers.passage!(
+  stamma,
+  "Svar från Therese Lundstedt registrerat",
+  Seed.Helpers.ago(14, 5)
+)
+
+Seed.Helpers.passage!(
+  stamma,
+  "Dagordning passerade från Dagordning & underlag till Stämma",
+  Seed.Helpers.ago(10, 1),
+  from: s_dagordning,
+  to: s_stamma,
+  item: it_s_dagordning
+)
+
+Seed.Helpers.passage!(
+  stamma,
+  "Protokoll passerade från Stämma till Protokoll & e-signering",
+  Seed.Helpers.ago(6),
+  from: s_stamma,
+  to: s_protokoll,
+  item: it_s_protokoll
+)
+
+Seed.Helpers.passage!(stamma, "Protokoll signerat av ordförande", Seed.Helpers.ago(5, 3))
+Seed.Helpers.passage!(stamma, "Protokoll signerat av justerare", Seed.Helpers.ago(5, 1))
+
+Seed.Helpers.passage!(
+  stamma,
+  "Stämmobeslut passerade från Protokoll & e-signering till Registrering & arkiv",
+  Seed.Helpers.ago(4),
+  from: s_protokoll,
+  to: s_arkiv
+)
+
+# Verklig kallelse (scripts/mail/bolagsstämma) — bilagorna (PDF) följer inte med i seeden.
+Seed.Helpers.mail!(stamma, s_kallelse, %{
+  from: "Therese Lundstedt",
+  from_email: "therese.lundstedt@gimic.se",
+  subject: "Kallelse till extra bolagsstämma - Gimic",
+  at: ~U[2026-09-09 15:20:31Z],
+  confidence: "high",
+  body: [
+    "Hej aktieägare i Gimic,",
+    "Vi kallar härmed till en extra bolagsstämma den 23 september kl. 10.00-10.30. Se bifogad kallelse samt övriga handlingar.",
+    "Anmäl ditt deltagande senast den 21 september till: therese.lundstedt@gimic.se - en kalenderinbjudan med möteslänk sänds ut vid anmälan.",
+    "Bakgrund: Den extra bolagsstämman hanterar två ärenden:",
+    "1. För att stärka eget kapital som under en period blivit ansträngt föreslås en kvittningsemission att genomföras där befintliga lån från två aktieägare avses kvittas mot aktier. Se fullständiga villkor, etc. i bifogade bilagor.",
+    "2. Under 2024 togs ett stämmobeslut för att ge ut kvalificerade personaloptioner till anställda i Gimic. Av olika skäl har dessa optioner inte kommit i spel. Ett omtag föreslås nu då tidigare pott inte längre blir aktuell och beslut tas om nytt optionsprogram. Se fullständiga villkor, etc. i bifogad bilaga.",
+    "Har ni frågor är ni självklart välkomna att höra av er till styrelse eller VD.",
+    "Vänliga hälsningar,",
+    "/Gimics styrelse gm Therese Lundstedt",
+    "Therese Lundstedt, VD, Gimic AB"
+  ]
+})
+
+Seed.Helpers.mail!(stamma, s_kallelse, %{
+  from: "Karin Lindqvist",
+  from_email: "karin.lindqvist@gimic.se",
+  subject: "Re: kallelse extra bolagsstämma",
+  at: Seed.Helpers.ago(14, 6),
+  confidence: "high",
+  body: [
+    "Hej,",
+    "Bekräftar att jag deltar på stämman och leder den som ordförande.",
+    "Karin"
+  ]
+})
+
+Seed.Helpers.mail!(stamma, s_dagordning, %{
+  from: "Karin Lindqvist",
+  from_email: "karin.lindqvist@gimic.se",
+  subject: "Punkt om nyemission till dagordningen",
+  at: Seed.Helpers.ago(11),
+  confidence: "high",
+  body: [
+    "Hej,",
+    "Lägg till en punkt om nyemission och ändring av bolagsordningen på dagordningen.",
+    "Karin"
+  ]
+})
+
+# Verklig Scrive-bekräftelse (scripts/mail/bolagsstämma) — det signerade protokollet (PDF) följer inte med.
+Seed.Helpers.mail!(stamma, s_protokoll, %{
+  from: "Therese Lundstedt via Scrive",
+  from_email: "noreply@scrive.com",
+  subject: "Bekräftelse: e-signerat dokument Protokoll - extra bolagsstämma Gimic 2026-09-24",
+  at: ~U[2026-09-24 12:43:31Z],
+  confidence: "high",
+  body: [
+    "Dokumentet Protokoll - extra bolagsstämma Gimic 2026-09-24 har signerats av Stefan Axelsson och Marcus Nilsson.",
+    "Det färdigställda dokumentet bifogas med detta mail.",
+    "E-signing powered by Scrive"
+  ]
+})
+
+Seed.Helpers.contact!(
+  stamma,
+  "Karin Lindqvist",
+  "Ordförande",
+  "karin.lindqvist@gimic.se",
+  "intern",
+  [
+    "Dagordning & underlag",
+    "Protokoll & e-signering"
+  ]
+)
+
+Seed.Helpers.contact!(
+  stamma,
+  "Therese Lundstedt",
+  "Aktieägare",
+  "therese.lundstedt@gimic.se",
+  "intern",
+  [
+    "Kallelse",
+    "Stämma"
+  ]
+)
+
+Seed.Helpers.contact!(stamma, "Convocation Agent", "Kallelse & fullmakter", nil, "ai", [
+  "Kallelse"
+])
+
+Seed.Helpers.contact!(stamma, "Minute-keeper", "Protokoll & arkiv", nil, "ai", [
+  "Protokoll & e-signering",
+  "Registrering & arkiv"
+])
+
 # ================== Space: Projektuppföljning ==================
 
 projekt =
@@ -738,7 +1202,6 @@ projekt =
       "Håll koll på projektet: fånga beslut, skapa uppgifter med ägare, och följ upp deadlines."
   })
 
-link!.(karin, projekt)
 link!.(marcus, projekt)
 
 p_inkorg =
@@ -968,7 +1431,6 @@ bokforing =
       "Ta fakturor från mail, extrahera fält, matcha mot inköpsorder, godkänn avvikelser och exportera till Fortnox."
   })
 
-link!.(karin, bokforing)
 link!.(marcus, bokforing)
 
 b_extraktion =

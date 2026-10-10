@@ -1,0 +1,88 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 2400 >>
+stream
+BT /F2 18 Tf 56 780 Td (Balansräkning) Tj ET
+BT /F1 10 Tf 56 762 Td (Gimic AB · org.nr 556123-4567 · per 2025-10-31 \(jämfört med 2024-12-31\)) Tj ET
+0.6 w 56 750 m 539 750 l S
+BT /F2 11 Tf 56 728 Td (TILLGÅNGAR) Tj ET
+BT /F2 11 Tf 430 728 Td (2025-10-31) Tj ET
+0.4 w 400 741 m 539 741 l S
+BT /F2 11 Tf 56 709 Td (Anläggningstillgångar) Tj ET
+0.4 w 400 722 m 539 722 l S
+BT /F1 11 Tf 56 690 Td (Inventarier och utrustning) Tj ET
+BT /F1 11 Tf 430 690 Td (1 850 000) Tj ET
+BT /F1 11 Tf 56 671 Td (Andelar i dotterbolag) Tj ET
+BT /F1 11 Tf 430 671 Td (4 200 000) Tj ET
+BT /F2 11 Tf 56 652 Td (Summa anläggningstillgångar) Tj ET
+BT /F2 11 Tf 430 652 Td (6 050 000) Tj ET
+0.4 w 400 665 m 539 665 l S
+BT /F2 11 Tf 56 625 Td (Omsättningstillgångar) Tj ET
+0.4 w 400 638 m 539 638 l S
+BT /F1 11 Tf 56 606 Td (Kundfordringar) Tj ET
+BT /F1 11 Tf 430 606 Td (5 320 000) Tj ET
+BT /F1 11 Tf 56 587 Td (Övriga fordringar) Tj ET
+BT /F1 11 Tf 430 587 Td (780 000) Tj ET
+BT /F1 11 Tf 56 568 Td (Kassa och bank) Tj ET
+BT /F1 11 Tf 430 568 Td (9 450 000) Tj ET
+BT /F2 11 Tf 56 549 Td (Summa omsättningstillgångar) Tj ET
+BT /F2 11 Tf 430 549 Td (15 550 000) Tj ET
+0.4 w 400 562 m 539 562 l S
+BT /F2 11 Tf 56 522 Td (SUMMA TILLGÅNGAR) Tj ET
+BT /F2 11 Tf 430 522 Td (21 600 000) Tj ET
+0.4 w 400 535 m 539 535 l S
+BT /F2 11 Tf 56 495 Td (EGET KAPITAL OCH SKULDER) Tj ET
+0.4 w 400 508 m 539 508 l S
+BT /F1 11 Tf 56 476 Td (Aktiekapital) Tj ET
+BT /F1 11 Tf 430 476 Td (1 000 000) Tj ET
+BT /F1 11 Tf 56 457 Td (Balanserat resultat) Tj ET
+BT /F1 11 Tf 430 457 Td (8 900 000) Tj ET
+BT /F1 11 Tf 56 438 Td (Periodens resultat) Tj ET
+BT /F1 11 Tf 430 438 Td (3 100 000) Tj ET
+BT /F2 11 Tf 56 419 Td (Summa eget kapital) Tj ET
+BT /F2 11 Tf 430 419 Td (13 000 000) Tj ET
+0.4 w 400 432 m 539 432 l S
+BT /F1 11 Tf 56 392 Td (Långfristiga skulder \(banklån\)) Tj ET
+BT /F1 11 Tf 430 392 Td (4 000 000) Tj ET
+BT /F1 11 Tf 56 373 Td (Leverantörsskulder) Tj ET
+BT /F1 11 Tf 430 373 Td (2 640 000) Tj ET
+BT /F1 11 Tf 56 354 Td (Övriga kortfristiga skulder) Tj ET
+BT /F1 11 Tf 430 354 Td (1 960 000) Tj ET
+BT /F2 11 Tf 56 335 Td (Summa skulder) Tj ET
+BT /F2 11 Tf 430 335 Td (8 600 000) Tj ET
+0.4 w 400 348 m 539 348 l S
+BT /F2 11 Tf 56 308 Td (SUMMA EGET KAPITAL OCH SKULDER) Tj ET
+BT /F2 11 Tf 430 308 Td (21 600 000) Tj ET
+0.4 w 400 321 m 539 321 l S
+BT /F1 8 Tf 56 40 Td (Exporterad fr\345n ekonomisystemet. Belopp i kronor (SEK).) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000251 00000 n 
+0000002703 00000 n 
+0000002800 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+2902
+%%EOF

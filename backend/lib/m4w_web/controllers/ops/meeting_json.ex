@@ -13,7 +13,14 @@ defmodule M4wWeb.Ops.MeetingJSON do
       status: meeting.status,
       location: meeting.location,
       attendees: meeting.attendees,
-      decisions: Enum.map(meeting.decisions, &M4wWeb.Ops.DecisionJSON.data/1)
+      decisions: Enum.map(meeting.decisions, &M4wWeb.Ops.DecisionJSON.data/1),
+      agenda: agenda(meeting)
     }
   end
+
+  defp agenda(%Meeting{agenda: %{} = a}) do
+    %{id: to_string(a.id), title: a.title, kind: a.kind, size: a.size, url: a.url}
+  end
+
+  defp agenda(_), do: nil
 end

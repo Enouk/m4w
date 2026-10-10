@@ -13,10 +13,12 @@ defmodule M4w.Ops do
   alias M4w.Repo
 
   alias M4w.Ops.{
+    Action,
     Artifact,
     ComplianceCheck,
     Contact,
     Entity,
+    FinanceEntry,
     Goal,
     Inbox,
     Item,
@@ -1104,11 +1106,11 @@ defmodule M4w.Ops do
     |> where([m], m.space_id == ^space_id)
     |> order_by([m], desc: m.occurred_at)
     |> Repo.all()
-    |> Repo.preload(:decisions)
+    |> Repo.preload([:decisions, :agenda])
   end
 
   def get_meeting!(id) do
-    Meeting |> Repo.get!(to_integer(id)) |> Repo.preload(:decisions)
+    Meeting |> Repo.get!(to_integer(id)) |> Repo.preload([:decisions, :agenda])
   end
 
   def list_decisions(%Space{id: space_id}) do
@@ -1120,6 +1122,37 @@ defmodule M4w.Ops do
     |> Enum.flat_map(fn meeting ->
       Enum.map(meeting.decisions, &%{decision: &1, meeting: meeting})
     end)
+  end
+
+  # ---------------- Actions (uppgifter) ----------------
+
+  def list_actions(%Space{id: space_id}) do
+    Action
+    |> where([a], a.space_id == ^space_id)
+    |> order_by([a], asc: a.due_at, asc: a.id)
+    |> preload(:meeting)
+    |> Repo.all()
+  end
+
+  def get_action!(%Space{id: space_id}, id) do
+    Action
+    |> where([a], a.space_id == ^space_id and a.id == ^to_integer(id))
+    |> preload(:meeting)
+    |> Repo.one!()
+  end
+
+  def update_action(%Action{} = action, attrs) do
+    action |> Action.changeset(attrs) |> Repo.update()
+  end
+
+  # ---------------- Finance entries (ekonomi) ----------------
+
+  def list_finance_entries(%Space{id: space_id}) do
+    FinanceEntry
+    |> where([f], f.space_id == ^space_id)
+    |> order_by([f], asc: f.id)
+    |> preload([:meeting, :artifact])
+    |> Repo.all()
   end
 
   # ---------------- Compliance / Verifications ----------------

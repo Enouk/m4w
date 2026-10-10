@@ -125,6 +125,11 @@ defmodule M4wWeb.Router do
       get "/meetings", MeetingController, :index
       get "/decisions", DecisionController, :index
 
+      get "/actions", ActionController, :index
+      patch "/actions/:actionId", ActionController, :update
+
+      get "/finance", FinanceController, :index
+
       get "/compliance", ComplianceController, :index
       get "/verifications", VerificationController, :index
     end

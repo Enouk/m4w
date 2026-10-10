@@ -184,6 +184,15 @@
     listForSpace: (spaceId) => get(`/spaces/${spaceId}/decisions`).then(data)
   };
 
+  const actions = {
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/actions`).then(data),
+    update: (spaceId, actionId, patchBody) => patch(`/spaces/${spaceId}/actions/${actionId}`, patchBody).then(data)
+  };
+
+  const finance = {
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/finance`).then(data)
+  };
+
   // ---------- Space-specific: Efterlevnad / Verifikationer (bokföring) ----------
   const compliance = {
     listForSpace: (spaceId) => get(`/spaces/${spaceId}/compliance`).then(data)
@@ -212,6 +221,8 @@
     processes,
     meetings,
     decisions,
+    actions,
+    finance,
     compliance,
     verifications
   };

@@ -174,11 +174,14 @@ GET    /processes    -> Space[] med rooms[] inbäddade (samma data som /spaces +
 
 ### Space-specifika flikar
 
-Styrelsearbete (`spaceTabs: möten, beslut`):
+Styrelsearbete (`spaceTabs: möten, beslut, uppgifter, ekonomi`):
 ```
 GET    /spaces/:spaceId/meetings              -> Meeting[]
 GET    /meetings/:meetingId                    -> Meeting
 GET    /spaces/:spaceId/decisions              -> Decision[]   (flattened ur meetings)
+GET    /spaces/:spaceId/actions                -> Action[]     {id, title, assignee, assigneeRole, status: att_gora|pagar|klar, dueDate, meetingId, meetingTitle}
+PATCH  /spaces/:spaceId/actions/:actionId      -> Action       (t.ex. {status})
+GET    /spaces/:spaceId/finance                -> FinanceEntry[] {id, title, kind: budget|utgift|intakt|balansrakning|resultatrakning|arsredovisning, amount (heltal, kr), currency, note, status: att_godkanna|godkand|avslagen, meetingId, meetingTitle, meetingDate, document: {id,title,kind,size,url}|null}
 ```
 
 Bokföring (`spaceTabs: efterlevnad, verifikationer`):
