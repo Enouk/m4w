@@ -2585,6 +2585,168 @@ for {version, title, summary, by, at, owners} <- [
   })
 end
 
+# ================== Space: Anställningsavtal ==================
+
+anstallning =
+  Repo.insert!(%Space{
+    name: "Anställningsavtal",
+    address: "anstallningsavtal-gimic@m4w.ai",
+    category: "HR",
+    goal:
+      "Följ anställningsavtal från erbjudande till avslut: när en person anställs, under vilket avtal och kollektivavtal, och när de säger upp sig — med uppsägningstid och slutdatum."
+  })
+
+link!.(theresia, anstallning)
+link!.(marcus, anstallning)
+
+an_erbjudande =
+  Seed.Helpers.room!(
+    anstallning,
+    "Erbjudande & avtal",
+    0,
+    "mixed",
+    "AI + VD",
+    "Anställningsavtal upprättat och signerat av båda parter",
+    "öppnar när en person ska anställas"
+  )
+
+an_gallande =
+  Seed.Helpers.room!(
+    anstallning,
+    "Gällande anställning",
+    1,
+    "ai",
+    "AI",
+    "Anställningen registrerad med avtalsvillkor och uppsägningstid",
+    "öppnar när avtalet är signerat"
+  )
+
+an_uppsagning =
+  Seed.Helpers.room!(
+    anstallning,
+    "Uppsägning & avslut",
+    2,
+    "mixed",
+    "AI + Ekonomiansvarig",
+    "Uppsägning bekräftad, slutlön och avslut hanterat",
+    "öppnar när en person säger upp sig eller sägs upp"
+  )
+
+an_arkiv =
+  Seed.Helpers.room!(
+    anstallning,
+    "Avslutade anställningar",
+    3,
+    "ai",
+    "AI",
+    "Avslutat avtal arkiverat",
+    "stängd terminalstation"
+  )
+
+it_erbjudande =
+  Seed.Helpers.item!(
+    an_erbjudande,
+    "Anställningsavtal — Johan Berg (utvecklare)",
+    "väntar på signering",
+    "human"
+  )
+
+it_gallande =
+  Seed.Helpers.item!(
+    an_gallande,
+    "Elin Sjöberg — tillsvidare, 6 mån uppsägning",
+    "anställd sedan 1 feb 2025",
+    "done"
+  )
+
+it_uppsagning =
+  Seed.Helpers.item!(
+    an_uppsagning,
+    "Oskar Ek — uppsägning från arbetstagaren",
+    "uppsägningstid 3 mån, slutdatum 31 dec 2026",
+    "human"
+  )
+
+it_arkiv =
+  Seed.Helpers.item!(
+    an_arkiv,
+    "Maria Holm — avslutad 30 jun 2026",
+    "visstidsanställning löpte ut",
+    "done"
+  )
+
+# {namn, avtalsdokument, status, rum, tidpunkt, passage}
+for {title, status, room, at} <- [
+      {"Anställningsavtal Elin Sjöberg.pdf", "signerad", an_gallande, ~U[2025-01-15 09:00:00Z]},
+      {"Anställningsavtal Oskar Ek.pdf", "signerad", an_uppsagning, ~U[2023-08-21 09:00:00Z]},
+      {"Uppsägning Oskar Ek.pdf", "mottagen", an_uppsagning, ~U[2026-09-30 14:00:00Z]},
+      {"Anställningsavtal Maria Holm (visstid).pdf", "signerad", an_arkiv,
+       ~U[2025-07-01 09:00:00Z]},
+      {"Anställningsavtal Johan Berg (utkast).pdf", "utkast", an_erbjudande,
+       ~U[2026-10-05 10:00:00Z]}
+    ] do
+  Seed.Helpers.artifact!(anstallning, room, title, "PDF", status, "VD", "120 KB", at)
+end
+
+Seed.Helpers.passage!(
+  anstallning,
+  "Anställningsavtal för Elin Sjöberg signerat: tillsvidare, 6 månaders ömsesidig uppsägningstid, start 1 feb 2025.",
+  ~U[2025-01-15 09:00:00Z],
+  item: it_gallande,
+  from: an_erbjudande,
+  to: an_gallande
+)
+
+Seed.Helpers.passage!(
+  anstallning,
+  "Maria Holms visstidsanställning (1 jul 2025 – 30 jun 2026) löpte ut och arkiverades utan uppsägning.",
+  ~U[2026-06-30 16:00:00Z],
+  item: it_arkiv,
+  from: an_gallande,
+  to: an_arkiv
+)
+
+Seed.Helpers.passage!(
+  anstallning,
+  "Oskar Ek sade upp sig 30 sep 2026. Enligt avtalet från 21 aug 2023 gäller 3 månaders uppsägningstid — sista anställningsdag 31 dec 2026.",
+  ~U[2026-09-30 14:00:00Z],
+  item: it_uppsagning,
+  from: an_gallande,
+  to: an_uppsagning
+)
+
+Seed.Helpers.passage!(
+  anstallning,
+  "Anställningsavtal för Johan Berg skickat för signering, planerad start 1 jan 2027.",
+  ~U[2026-10-05 10:00:00Z],
+  item: it_erbjudande,
+  to: an_erbjudande
+)
+
+Seed.Helpers.contact!(
+  anstallning,
+  "Theresia Lundberg",
+  "VD",
+  "theresia.lundberg@acme.se",
+  "intern",
+  [
+    "Erbjudande & avtal",
+    "Uppsägning & avslut"
+  ]
+)
+
+Seed.Helpers.contact!(
+  anstallning,
+  "Marcus Nilsson",
+  "Ekonomiansvarig · CFO",
+  "marcus@acme.se",
+  "intern",
+  [
+    "Gällande anställning",
+    "Uppsägning & avslut"
+  ]
+)
+
 # ================== Unclassified (global triage queue) ==================
 
 Seed.Helpers.mail!(nil, nil, %{
