@@ -6,6 +6,7 @@
 
 const DEMO_USERS = [
   { email: "karin.lindqvist@acme.se", name: "Karin Lindqvist", initials: "KL", role: "Styrelseordförande", org: "Acme AB" },
+  { email: "theresia.lundberg@acme.se", name: "Theresia Lundberg", initials: "TL", role: "VD", org: "Acme AB" },
   { email: "marcus@acme.se", name: "Marcus Nilsson", initials: "MN", role: "Ekonomiansvarig · CFO", org: "Acme AB" },
   { email: "sara@ahlenkonsult.se", name: "Sara Ahlén", initials: "SA", role: "Enskild firma", org: null }
 ];

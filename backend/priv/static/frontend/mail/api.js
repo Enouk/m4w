@@ -193,6 +193,10 @@
     listForSpace: (spaceId) => get(`/spaces/${spaceId}/finance`).then(data)
   };
 
+  const agreements = {
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/agreements`).then(data)
+  };
+
   // ---------- Space-specific: Efterlevnad / Verifikationer (bokföring) ----------
   const compliance = {
     listForSpace: (spaceId) => get(`/spaces/${spaceId}/compliance`).then(data)
@@ -223,6 +227,7 @@
     decisions,
     actions,
     finance,
+    agreements,
     compliance,
     verifications
   };

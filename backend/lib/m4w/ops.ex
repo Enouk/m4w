@@ -14,6 +14,7 @@ defmodule M4w.Ops do
 
   alias M4w.Ops.{
     Action,
+    AgreementRevision,
     Artifact,
     ComplianceCheck,
     Contact,
@@ -36,7 +37,17 @@ defmodule M4w.Ops do
     Verification
   }
 
-  @space_categories ["Marketing", "Sales", "Service", "HR", "Accounting", "Board", "Code"]
+  @space_categories [
+    "Marketing",
+    "Sales",
+    "Service",
+    "HR",
+    "Accounting",
+    "Board",
+    "Management",
+    "Legal",
+    "Code"
+  ]
 
   def space_categories, do: @space_categories
 
@@ -1152,6 +1163,16 @@ defmodule M4w.Ops do
     |> where([f], f.space_id == ^space_id)
     |> order_by([f], asc: f.id)
     |> preload([:meeting, :artifact])
+    |> Repo.all()
+  end
+
+  # ---------------- Shareholders' agreement revisions (aktieägaravtal) ----------------
+
+  def list_agreement_revisions(%Space{id: space_id}) do
+    AgreementRevision
+    |> where([r], r.space_id == ^space_id)
+    |> order_by([r], desc: r.effective_at, desc: r.id)
+    |> preload(:artifact)
     |> Repo.all()
   end
 

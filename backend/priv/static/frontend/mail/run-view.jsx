@@ -2,6 +2,8 @@
 
 const SPACE_TABS_BY_CATEGORY = {
   Board: [{ label: "Möten", value: "moten" }, { label: "Beslut", value: "beslut" }, { label: "Uppgifter", value: "uppgifter" }, { label: "Ekonomi", value: "ekonomi" }],
+  Management: [{ label: "Möten", value: "moten" }, { label: "Beslut", value: "beslut" }, { label: "Uppgifter", value: "uppgifter" }, { label: "Ekonomi", value: "ekonomi" }],
+  Legal: [{ label: "Tidslinje", value: "tidslinje" }],
   Accounting: [{ label: "Efterlevnad", value: "efterlevnad" }, { label: "Verifikationer", value: "verifikationer" }]
 };
 
@@ -759,6 +761,54 @@ const FinanceTab = ({ space }) => {
   );
 };
 
+const AgreementTab = ({ space }) => {
+  const [revisions, setRevisions] = React.useState(null);
+
+  React.useEffect(() => {
+    window.API.agreements.listForSpace(space.id).then(setRevisions);
+  }, [space.id]);
+
+  if (revisions === null) return null;
+
+  return (
+    <div className="decisions-tab">
+      <div className="meetings-intro">
+        Dokumentet över tid — varje revision eller ändring med vad som hände och vilka ägare som fanns efter den.
+      </div>
+      <ul className="register-list">
+        {revisions.map((r, i) => (
+          <li key={r.id} className="register-row">
+            <div className="register-date mono-sub">{window.formatDateTime(r.effectiveDate)}</div>
+            <div className="register-node" aria-hidden="true">
+              <span className="register-dot register-dot-meeting" />
+            </div>
+            <div className="register-body">
+              <div className="register-text">
+                <span className="finance-kind mono-sub">{r.version}</span> {r.title}
+                {i === 0 && <span className="agreement-current">Gällande</span>}
+              </div>
+              {r.summary && <div className="register-meta"><span className="mono-sub">{r.summary}</span></div>}
+              <FinanceDocLink doc={r.document} />
+              <table className="agreement-owners">
+                <tbody>
+                  {r.owners.map((o) => (
+                    <tr key={o.name}>
+                      <td>{o.name}</td>
+                      <td className="mono-sub">{new Intl.NumberFormat("sv-SE").format(o.shares)} aktier</td>
+                      <td className="mono-sub">{o.percent} %</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </li>
+        ))}
+        {revisions.length === 0 && <li className="decision-empty">Inga revisioner ännu.</li>}
+      </ul>
+    </div>
+  );
+};
+
 const DecisionsTab = ({ space }) => {
   const [all, setAll] = React.useState(null);
 
@@ -1142,6 +1192,7 @@ const RunView = ({ space, tab, onSetTab, onOpenItem, onOpenMail, onGoToDesign })
       {effectiveTab === "beslut" && <DecisionsTab space={space} />}
       {effectiveTab === "uppgifter" && <ActionsTab space={space} />}
       {effectiveTab === "ekonomi" && <FinanceTab space={space} />}
+      {effectiveTab === "tidslinje" && <AgreementTab space={space} />}
       {effectiveTab === "efterlevnad" && <ComplianceTab space={space} />}
       {effectiveTab === "verifikationer" && <VerificationsTab space={space} roomsById={roomsById} />}
       {effectiveTab === "pipeline" && (

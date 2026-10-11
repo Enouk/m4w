@@ -8,6 +8,7 @@ alias M4w.Repo
 
 alias M4w.Ops.{
   Action,
+  AgreementRevision,
   Artifact,
   ComplianceCheck,
   Contact,
@@ -155,6 +156,15 @@ karin =
     initials: "KL"
   })
 
+theresia =
+  Repo.insert!(%User{
+    org_id: acme.id,
+    name: "Theresia Lundberg",
+    email: "theresia.lundberg@acme.se",
+    role: "VD",
+    initials: "TL"
+  })
+
 marcus =
   Repo.insert!(%User{
     org_id: acme.id,
@@ -189,6 +199,7 @@ styrelse =
   })
 
 link!.(karin, styrelse)
+link!.(theresia, styrelse)
 
 r_kallelse =
   Seed.Helpers.room!(
@@ -819,6 +830,323 @@ Seed.Helpers.contact!(styrelse, "Minute-keeper", "Protokoll & beslutslogg", nil,
   "Protokoll",
   "Beslutslogg"
 ])
+
+# ================== Space: Ledningsgrupp ==================
+
+ledning =
+  Repo.insert!(%Space{
+    name: "Ledningsgrupp",
+    address: "ledning-acme@m4w.ai",
+    category: "Management",
+    goal:
+      "Driv ledningsgruppens arbete från agenda och möte till beslut, uppgifter och ekonomisk uppföljning med full spårbarhet."
+  })
+
+link!.(theresia, ledning)
+link!.(marcus, ledning)
+
+l_agenda =
+  Seed.Helpers.room!(
+    ledning,
+    "Agenda",
+    0,
+    "mixed",
+    "AI + VD",
+    "Agenda byggd från ledningsgruppens ärenden",
+    "öppnar när VD godkänner"
+  )
+
+l_mote =
+  Seed.Helpers.room!(
+    ledning,
+    "Ledningsmöte",
+    1,
+    "human",
+    "Ledningsgruppen",
+    "Mötet genomfört",
+    "öppnar när möte = avslutat"
+  )
+
+l_beslut =
+  Seed.Helpers.room!(
+    ledning,
+    "Beslut",
+    2,
+    "ai",
+    "AI · Minute-keeper",
+    "Beslut loggade och spårbara",
+    "öppnar när mötesanteckningar är klara"
+  )
+
+l_uppgifter =
+  Seed.Helpers.room!(
+    ledning,
+    "Uppgifter",
+    3,
+    "mixed",
+    "AI + Ledningsgrupp",
+    "Uppgifter fördelade och uppföljda",
+    "öppnar när beslut har ansvarig"
+  )
+
+l_ekonomi =
+  Seed.Helpers.room!(
+    ledning,
+    "Ekonomi",
+    4,
+    "mixed",
+    "AI + CFO",
+    "Ekonomisk uppföljning godkänd",
+    "öppnar när CFO godkänt rapport"
+  )
+
+l_it_agenda =
+  Seed.Helpers.item!(l_agenda, "Ledningsmöte 20 okt", "4 punkter inlämnade", "human")
+
+_l_it_mote = Seed.Helpers.item!(l_mote, "Ledningsmöte 13 okt", "genomfört", "done")
+
+_l_it_beslut =
+  Seed.Helpers.item!(l_beslut, "6 beslut loggade i år", "senaste: budgetram Q4", "done")
+
+_l_it_uppg = Seed.Helpers.item!(l_uppgifter, "7 öppna uppgifter", "2 försenade", "waiting")
+_l_it_ekonomi = Seed.Helpers.item!(l_ekonomi, "Månadsrapport september", "väntar på CFO", "human")
+
+l_attendees = fn present ->
+  [
+    %{"name" => "Theresia Lundberg", "role" => "VD", "present" => present},
+    %{"name" => "Marcus Nilsson", "role" => "CFO", "present" => present},
+    %{"name" => "Johanna Persson", "role" => "COO", "present" => present},
+    %{"name" => "Henrik Sandberg", "role" => "CTO", "present" => present},
+    %{"name" => "Emma Falk", "role" => "HR-chef", "present" => present}
+  ]
+end
+
+l_agenda_doc =
+  Repo.insert!(%Artifact{
+    space_id: ledning.id,
+    room_id: l_agenda.id,
+    title: "Dagordning ledningsmöte 20 okt",
+    kind: "DOCX",
+    status: "utkast",
+    created_by: "Theresia Lundberg",
+    size: "38 kB",
+    url: "#",
+    occurred_at: Seed.Helpers.ago(0, 3)
+  })
+
+Repo.insert!(%Meeting{
+  space_id: ledning.id,
+  title: "Ledningsmöte 20 okt",
+  occurred_at: Seed.Helpers.ago(-9),
+  status: "planerat",
+  location: "Huvudkontoret, Stockholm",
+  agenda_id: l_agenda_doc.id,
+  attendees: l_attendees.(nil)
+})
+
+l_mote_13okt =
+  Repo.insert!(%Meeting{
+    space_id: ledning.id,
+    title: "Ledningsmöte 13 okt",
+    occurred_at: Seed.Helpers.ago(2),
+    status: "genomfört",
+    location: "Digitalt · Teams",
+    attendees: l_attendees.(true)
+  })
+
+l_mote_29sep =
+  Repo.insert!(%Meeting{
+    space_id: ledning.id,
+    title: "Ledningsmöte 29 sep",
+    occurred_at: Seed.Helpers.ago(16),
+    status: "genomfört",
+    location: "Huvudkontoret, Stockholm",
+    attendees:
+      Enum.map(l_attendees.(true), fn a ->
+        if a["name"] == "Emma Falk", do: %{a | "present" => false}, else: a
+      end)
+  })
+
+for {meeting, text, outcome, votes} <- [
+      {l_mote_13okt, "Budgetram Q4 fastställd", "Bifall", "5 för, 0 emot"},
+      {l_mote_13okt, "Rekrytering av två utvecklare godkänd", "Bifall", "4 för, 1 avstod"},
+      {l_mote_29sep, "Ny prismodell införs 1 jan", "Bifall", "5 för, 0 emot"},
+      {l_mote_29sep, "Kontorsflytt skjuts till våren", "Bordlagt", "—"}
+    ] do
+  Repo.insert!(%Decision{meeting_id: meeting.id, text: text, outcome: outcome, votes: votes})
+end
+
+for {title, assignee, role, due_days, status, meeting} <- [
+      {"Ta fram rekryteringsannonser för utvecklartjänster", "Emma Falk", "HR-chef", -7, "pagar",
+       l_mote_13okt},
+      {"Uppdatera prislistor inför ny prismodell", "Johanna Persson", "COO", -5, "att_gora",
+       l_mote_13okt},
+      {"Teknisk riskanalys inför Q4", "Henrik Sandberg", "CTO", -10, "att_gora", l_mote_13okt},
+      {"Kommunicera ny prismodell till kunder", "Theresia Lundberg", "VD", 3, "klar",
+       l_mote_29sep},
+      {"Utred lokalalternativ inför flytt", "Johanna Persson", "COO", 5, "pagar", l_mote_29sep}
+    ] do
+  Repo.insert!(%Action{
+    space_id: ledning.id,
+    meeting_id: meeting.id,
+    title: title,
+    assignee: assignee,
+    assignee_role: role,
+    due_at: Seed.Helpers.ago(due_days),
+    status: status
+  })
+end
+
+for {title, kind, amount, note, status, meeting} <- [
+      {"Budgetram Q4 — total", "budget", 12_400_000, "Fastställd ram", "godkand", l_mote_13okt},
+      {"Rekrytering utvecklare (2 st)", "utgift", 180_000, "Rekryteringskostnad", "att_godkanna",
+       l_mote_13okt},
+      {"Nya prislistor — tryck och utskick", "utgift", 45_000, "Kundkommunikation", "godkand",
+       l_mote_29sep},
+      {"Intäkt ny prismodell Q4", "intakt", 900_000, "Prognos", "att_godkanna", l_mote_29sep}
+    ] do
+  Repo.insert!(%FinanceEntry{
+    space_id: ledning.id,
+    meeting_id: meeting.id,
+    title: title,
+    kind: kind,
+    amount: amount,
+    note: note,
+    status: status
+  })
+end
+
+Seed.Helpers.artifact!(
+  ledning,
+  l_beslut,
+  "Beslutslogg ledningsgrupp 2026 — export",
+  "CSV",
+  "arkiverad",
+  "Minute-keeper",
+  "14 kB",
+  Seed.Helpers.ago(5)
+)
+
+Seed.Helpers.artifact!(
+  ledning,
+  l_mote,
+  "Mötesanteckningar — ledningsmöte 13 okt",
+  "PDF",
+  "signerad",
+  "Theresia Lundberg",
+  "121 kB",
+  Seed.Helpers.ago(2)
+)
+
+Seed.Helpers.artifact!(
+  ledning,
+  l_ekonomi,
+  "Månadsrapport augusti",
+  "PDF",
+  "godkänd",
+  "Marcus Nilsson",
+  "86 kB",
+  Seed.Helpers.ago(30)
+)
+
+Seed.Helpers.passage!(
+  ledning,
+  "Agenda 20 okt skapad från inkomna ärenden",
+  Seed.Helpers.ago(0, 3),
+  to: l_agenda,
+  item: l_it_agenda
+)
+
+Seed.Helpers.passage!(
+  ledning,
+  "Ledningsmöte 13 okt passerade från Möte till Beslut",
+  Seed.Helpers.ago(2, 1),
+  from: l_mote,
+  to: l_beslut
+)
+
+Seed.Helpers.passage!(ledning, "Beslut 'budgetram Q4' loggat", Seed.Helpers.ago(2, 2))
+
+Seed.Helpers.passage!(
+  ledning,
+  "Uppgift 'Teknisk riskanalys' blev försenad",
+  Seed.Helpers.ago(0, 8),
+  from: l_beslut,
+  to: l_uppgifter
+)
+
+Seed.Helpers.mail!(ledning, l_agenda, %{
+  from: "Johanna Persson",
+  from_email: "johanna.persson@acme.se",
+  subject: "Punkt till agendan — lokalfrågan",
+  at: Seed.Helpers.ago(0, 4),
+  confidence: "high",
+  body: [
+    "Hej,",
+    "Vill lägga till lokalfrågan på nästa ledningsmöte. Jag har tagit fram tre alternativ.",
+    "Johanna"
+  ]
+})
+
+Seed.Helpers.mail!(ledning, l_uppgifter, %{
+  from: "Henrik Sandberg",
+  from_email: "henrik.sandberg@acme.se",
+  subject: "Status riskanalys",
+  at: Seed.Helpers.ago(1, 2),
+  confidence: "medium",
+  note: "osäker — bekräfta routing",
+  body: [
+    "Hej,",
+    "Riskanalysen blir klar i slutet av veckan, jag behöver ytterligare några dagar.",
+    "Henrik"
+  ]
+})
+
+Seed.Helpers.mail!(ledning, l_ekonomi, %{
+  from: "Marcus Nilsson",
+  from_email: "marcus@acme.se",
+  subject: "Månadsrapport september",
+  at: Seed.Helpers.ago(1, 5),
+  confidence: "high",
+  body: [
+    "Hej,",
+    "Bifogar månadsrapporten för september inför ledningsmötet.",
+    "Marcus"
+  ]
+})
+
+Repo.insert!(%OutboxMessage{
+  space_id: ledning.id,
+  state: "queued",
+  from: "Agenda",
+  to: "ledningsgruppen@acme.se",
+  subject: "Kallelse ledningsmöte 20 okt",
+  preview: "Hej, bifogat finns dagordning för ledningsmötet den 20 oktober…",
+  status_note: "väntar på godkännande",
+  occurred_at: Seed.Helpers.ago(0)
+})
+
+Repo.insert!(%OutboxMessage{
+  space_id: ledning.id,
+  state: "sent",
+  from: "Beslut",
+  to: "ledningsgruppen@acme.se",
+  subject: "Beslut från ledningsmöte 13 okt",
+  preview: "",
+  passage_note: "Möte → Beslut",
+  occurred_at: Seed.Helpers.ago(2)
+})
+
+for {name, role, email, group, rooms} <- [
+      {"Theresia Lundberg", "VD", "theresia.lundberg@acme.se", "intern", ["Agenda", "Beslut"]},
+      {"Marcus Nilsson", "CFO", "marcus@acme.se", "intern", ["Ekonomi"]},
+      {"Johanna Persson", "COO", "johanna.persson@acme.se", "intern", ["Uppgifter"]},
+      {"Henrik Sandberg", "CTO", "henrik.sandberg@acme.se", "intern", ["Uppgifter"]},
+      {"Emma Falk", "HR-chef", "emma.falk@acme.se", "intern", ["Uppgifter"]},
+      {"Minute-keeper", "Beslut & uppgifter", nil, "ai", ["Beslut", "Uppgifter"]}
+    ] do
+  Seed.Helpers.contact!(ledning, name, role, email, group, rooms)
+end
 
 # ================== Space: Bolagsstämma (Gimic) ==================
 
@@ -2065,6 +2393,197 @@ Seed.Helpers.contact!(fakturering, "Faktura-AI", "Fakturering & uppföljning", n
   "Uppföljning",
   "Betald"
 ])
+
+# ================== Space: Aktieägaravtal ==================
+
+avtal =
+  Repo.insert!(%Space{
+    name: "Aktieägaravtal",
+    address: "aktieagaravtal-gimic@m4w.ai",
+    category: "Legal",
+    goal:
+      "Följ aktieägaravtalet över tid: varje revision i en tidslinje, med ägarna som gällde vid varje ändring."
+  })
+
+link!.(karin, avtal)
+
+a_utkast =
+  Seed.Helpers.room!(
+    avtal,
+    "Utkast & förhandling",
+    0,
+    "mixed",
+    "AI + Jurist",
+    "Reviderat avtal förhandlat och överenskommet",
+    "öppnar när en ändring föreslås"
+  )
+
+a_signering =
+  Seed.Helpers.room!(
+    avtal,
+    "Signering",
+    1,
+    "mixed",
+    "AI + Ordförande",
+    "Avtalet signerat av alla parter",
+    "öppnar när utkastet är överenskommet"
+  )
+
+a_gallande =
+  Seed.Helpers.room!(
+    avtal,
+    "Gällande avtal",
+    2,
+    "ai",
+    "AI",
+    "Gällande version arkiverad",
+    "stängd terminalstation"
+  )
+
+_it_a_utkast =
+  Seed.Helpers.item!(
+    a_utkast,
+    "Tillägg: drag-along vid nyemission",
+    "väntar på synpunkter",
+    "human"
+  )
+
+_it_a_gallande =
+  Seed.Helpers.item!(a_gallande, "Aktieägaravtal v3", "gällande sedan 24 sep", "done")
+
+agreement_doc = fn title, at ->
+  Seed.Helpers.artifact!(avtal, a_gallande, title, "PDF", "signerad", "Jurist", "180 KB", at)
+end
+
+for {version, title, summary, by, at, owners} <- [
+      {"v1", "Aktieägaravtal Gimic AB",
+       "Ursprungligt avtal vid bolagsbildningen: förköp, hembud och tag-along.",
+       "Therese Lundstedt", ~U[2023-03-15 10:00:00Z],
+       [
+         %{"name" => "Therese Lundstedt", "shares" => 6_000},
+         %{"name" => "Marcus Nilsson", "shares" => 3_000},
+         %{"name" => "Karin Lindqvist", "shares" => 1_000}
+       ]},
+      {"v2", "Aktieägaravtal Gimic AB — tillägg om nytt ägande",
+       "Marcus Nilsson köper 1 000 aktier av Therese; ny röstbindning vid styrelseval.",
+       "Karin Lindqvist", ~U[2024-06-20 13:30:00Z],
+       [
+         %{"name" => "Therese Lundstedt", "shares" => 5_000},
+         %{"name" => "Marcus Nilsson", "shares" => 4_000},
+         %{"name" => "Karin Lindqvist", "shares" => 1_000}
+       ]},
+      {"v3", "Aktieägaravtal Gimic AB — kvittningsemission",
+       "Två aktieägare kvittar lån mot aktier; drag-along skärps och Nordic Angels tillträder avtalet.",
+       "Therese Lundstedt", ~U[2026-09-24 11:00:00Z],
+       [
+         %{"name" => "Therese Lundstedt", "shares" => 5_000},
+         %{"name" => "Marcus Nilsson", "shares" => 5_500},
+         %{"name" => "Karin Lindqvist", "shares" => 2_500},
+         %{"name" => "Nordic Angels AB", "shares" => 2_000}
+       ]}
+    ] do
+  doc = agreement_doc.("Aktieägaravtal #{version}.pdf", at)
+
+  Repo.insert!(%AgreementRevision{
+    space_id: avtal.id,
+    artifact_id: doc.id,
+    version: version,
+    title: title,
+    summary: summary,
+    changed_by: by,
+    effective_at: at,
+    owners: owners
+  })
+end
+
+# ================== Space: Aktiebok ==================
+
+aktiebok =
+  Repo.insert!(%Space{
+    name: "Aktiebok",
+    address: "aktiebok-gimic@m4w.ai",
+    category: "Legal",
+    goal:
+      "För aktieboken löpande: varje nyemission och överlåtelse i en tidslinje, med ägarna efter varje förändring."
+  })
+
+link!.(karin, aktiebok)
+
+ab_underlag =
+  Seed.Helpers.room!(
+    aktiebok,
+    "Underlag",
+    0,
+    "mixed",
+    "AI + Styrelseordförande",
+    "Överlåtelse eller emission underbyggd med handlingar",
+    "öppnar när en ägarförändring anmäls"
+  )
+
+ab_bok =
+  Seed.Helpers.room!(
+    aktiebok,
+    "Aktiebok",
+    1,
+    "ai",
+    "AI",
+    "Aktieboken uppdaterad och arkiverad",
+    "stängd terminalstation"
+  )
+
+_it_ab_underlag =
+  Seed.Helpers.item!(ab_underlag, "Överlåtelse Nordic Angels", "väntar på köpebrev", "human")
+
+_it_ab_bok = Seed.Helpers.item!(ab_bok, "Aktiebok nr 3", "gällande sedan 24 sep", "done")
+
+for {version, title, summary, by, at, owners} <- [
+      {"Nr 1", "Bolagsbildning", "Teckning av 10 000 aktier vid bolagsbildningen.",
+       "Therese Lundstedt", ~U[2023-03-15 10:00:00Z],
+       [
+         %{"name" => "Therese Lundstedt", "shares" => 6_000},
+         %{"name" => "Marcus Nilsson", "shares" => 3_000},
+         %{"name" => "Karin Lindqvist", "shares" => 1_000}
+       ]},
+      {"Nr 2", "Överlåtelse", "Therese Lundstedt överlåter 1 000 aktier till Marcus Nilsson.",
+       "Karin Lindqvist", ~U[2024-06-20 13:30:00Z],
+       [
+         %{"name" => "Therese Lundstedt", "shares" => 5_000},
+         %{"name" => "Marcus Nilsson", "shares" => 4_000},
+         %{"name" => "Karin Lindqvist", "shares" => 1_000}
+       ]},
+      {"Nr 3", "Kvittningsemission",
+       "Nyemission av 3 000 aktier: Marcus (1 500), Karin (1 500) och Nordic Angels (2 000) via lån och kontant betalning.",
+       "Therese Lundstedt", ~U[2026-09-24 11:00:00Z],
+       [
+         %{"name" => "Therese Lundstedt", "shares" => 5_000},
+         %{"name" => "Marcus Nilsson", "shares" => 5_500},
+         %{"name" => "Karin Lindqvist", "shares" => 2_500},
+         %{"name" => "Nordic Angels AB", "shares" => 2_000}
+       ]}
+    ] do
+  doc =
+    Seed.Helpers.artifact!(
+      aktiebok,
+      ab_bok,
+      "Aktiebok #{version}.pdf",
+      "PDF",
+      "signerad",
+      "Styrelsen",
+      "95 KB",
+      at
+    )
+
+  Repo.insert!(%AgreementRevision{
+    space_id: aktiebok.id,
+    artifact_id: doc.id,
+    version: version,
+    title: title,
+    summary: summary,
+    changed_by: by,
+    effective_at: at,
+    owners: owners
+  })
+end
 
 # ================== Unclassified (global triage queue) ==================
 

@@ -184,6 +184,11 @@ PATCH  /spaces/:spaceId/actions/:actionId      -> Action       (t.ex. {status})
 GET    /spaces/:spaceId/finance                -> FinanceEntry[] {id, title, kind: budget|utgift|intakt|balansrakning|resultatrakning|arsredovisning, amount (heltal, kr), currency, note, status: att_godkanna|godkand|avslagen, meetingId, meetingTitle, meetingDate, document: {id,title,kind,size,url}|null}
 ```
 
+Aktieägaravtal (`spaceTabs: tidslinje`):
+```
+GET    /spaces/:spaceId/agreements             -> AgreementRevision[] (senaste först) {id, version, title, summary, changedBy, effectiveDate, owners: [{name, shares, percent}] (ägare efter revisionen), document: {id,title,kind,size,url}|null}
+```
+
 Bokföring (`spaceTabs: efterlevnad, verifikationer`):
 ```
 GET    /spaces/:spaceId/compliance             -> ComplianceCheck[]

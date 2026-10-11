@@ -2511,3 +2511,8 @@ a { color: inherit; }
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
+
+/* ---------- Aktieägaravtal — revisionstidslinje med ägare ---------- */
+.agreement-current { margin-left: 8px; font-size: 10px; font-family: var(--mono); color: var(--green); background: var(--green-tint); padding: 2px 6px; border-radius: var(--radius-sm); }
+.agreement-owners { margin-top: 8px; border-collapse: collapse; font-size: 12.5px; }
+.agreement-owners td { padding: 2px 18px 2px 0; }
