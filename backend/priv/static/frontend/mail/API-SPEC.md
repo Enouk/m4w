@@ -182,6 +182,7 @@ GET    /spaces/:spaceId/decisions              -> Decision[]   (flattened ur mee
 GET    /spaces/:spaceId/actions                -> Action[]     {id, title, assignee, assigneeRole, status: att_gora|pagar|klar, dueDate, meetingId, meetingTitle}
 PATCH  /spaces/:spaceId/actions/:actionId      -> Action       (t.ex. {status})
 GET    /spaces/:spaceId/finance                -> FinanceEntry[] {id, title, kind: budget|utgift|intakt|balansrakning|resultatrakning|arsredovisning, amount (heltal, kr), currency, note, status: att_godkanna|godkand|avslagen, meetingId, meetingTitle, meetingDate, document: {id,title,kind,size,url}|null}
+GET    /spaces/:spaceId/taxes                  -> TaxCheck[] {id, title, kind: moms|arbetsgivaravgifter|preliminarskatt|bolagsskatt|skattekonto, period, amount (heltal, kr)|null, currency, dueAt, note, status: betald|att_betala|forsenad, meetingId}. Valfri per styrelsemöte.
 ```
 
 Aktieägaravtal (`spaceTabs: tidslinje`):

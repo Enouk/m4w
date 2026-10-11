@@ -1,7 +1,7 @@
 // Run-time view: Pipeline, Inbox (Live + Replay), Outbox.
 
 const SPACE_TABS_BY_CATEGORY = {
-  Board: [{ label: "Möten", value: "moten" }, { label: "Beslut", value: "beslut" }, { label: "Uppgifter", value: "uppgifter" }, { label: "Ekonomi", value: "ekonomi" }],
+  Board: [{ label: "Möten", value: "moten" }, { label: "Beslut", value: "beslut" }, { label: "Uppgifter", value: "uppgifter" }, { label: "Ekonomi", value: "ekonomi" }, { label: "Skatter", value: "skatter" }],
   Management: [{ label: "Möten", value: "moten" }, { label: "Beslut", value: "beslut" }, { label: "Uppgifter", value: "uppgifter" }, { label: "Ekonomi", value: "ekonomi" }],
   Legal: [{ label: "Tidslinje", value: "tidslinje" }],
   Accounting: [{ label: "Efterlevnad", value: "efterlevnad" }, { label: "Verifikationer", value: "verifikationer" }]
@@ -374,9 +374,11 @@ const MeetingsTab = ({ space }) => {
   const [meetings, setMeetings] = React.useState(null);
   const [actions, setActions] = React.useState([]);
   const [finance, setFinance] = React.useState([]);
+  const [taxes, setTaxes] = React.useState([]);
 
   React.useEffect(() => {
     window.API.meetings.listForSpace(space.id).then(setMeetings);
+    window.API.taxes.listForSpace(space.id).then(setTaxes);
     window.API.actions.listForSpace(space.id).then(setActions);
     window.API.finance.listForSpace(space.id).then(setFinance);
   }, [space.id]);
@@ -397,6 +399,7 @@ const MeetingsTab = ({ space }) => {
           const decided = m.status === "genomfört";
           const meetingActions = actions.filter((a) => a.meetingId === m.id);
           const meetingFinance = finance.filter((f) => f.meetingId === m.id);
+          const meetingTaxes = taxes.filter((t) => t.meetingId === m.id);
           return (
             <li key={m.id} className="meeting-card">
               <div className="meeting-head">
@@ -539,6 +542,56 @@ const MeetingsTab = ({ space }) => {
                     <div className="decision-empty">Ingen ekonomisk information.</div>
                   )}
                 </div>
+
+                <div className="meeting-col meeting-col-wide">
+                  <div className="meeting-col-label">
+                    Skatter
+                    {meetingTaxes.length > 0 && (
+                      <span className="meeting-col-count">{meetingTaxes.length} poster</span>
+                    )}
+                  </div>
+                  {meetingTaxes.length ? (
+                    <ul className="decision-list">
+                      {meetingTaxes.map((t) => (
+                        <li key={t.id} className="decision-row meeting-finance" data-status={t.status}>
+                          <div className="finance-row-line">
+                            <div className="decision-text">{t.title}</div>
+                            {t.amount != null && (
+                              <span className="finance-amount">{formatMoney(t.amount, t.currency)}</span>
+                            )}
+                          </div>
+                          <div className="decision-meta">
+                            <span className="finance-kind mono-sub">{TAX_KIND_LABEL[t.kind] || t.kind}</span>
+                            {t.period && (
+                              <>
+                                <span className="dot-sep">·</span>
+                                <span className="mono-sub">{t.period}</span>
+                              </>
+                            )}
+                            {t.dueAt && (
+                              <>
+                                <span className="dot-sep">·</span>
+                                <span className="mono-sub">förfaller {window.formatDateTime(t.dueAt).split(" ")[0]}</span>
+                              </>
+                            )}
+                            {t.note && (
+                              <>
+                                <span className="dot-sep">·</span>
+                                <span className="mono-sub">{t.note}</span>
+                              </>
+                            )}
+                            <span className="dot-sep">·</span>
+                            <span className="action-status-tag finance-status" data-fstatus={t.status}>
+                              {TAX_STATUS_LABEL[t.status] || t.status}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="decision-empty">Skattekontroll ej gjord vid detta möte.</div>
+                  )}
+                </div>
               </div>
             </li>
           );
@@ -662,6 +715,15 @@ const FINANCE_KIND_LABEL = {
   arsredovisning: "Årsredovisning"
 };
 
+const TAX_KIND_LABEL = {
+  moms: "Moms",
+  arbetsgivaravgifter: "Arbetsgivaravgifter",
+  preliminarskatt: "Preliminärskatt",
+  bolagsskatt: "Bolagsskatt",
+  skattekonto: "Skattekonto"
+};
+const TAX_STATUS_LABEL = { betald: "Betald", att_betala: "Att betala", forsenad: "Försenad" };
+
 const signedMoney = (e) =>
   `${e.kind === "intakt" ? "+" : e.kind === "utgift" ? "−" : ""}${formatMoney(e.amount, e.currency)}`;
 
@@ -756,6 +818,91 @@ const FinanceTab = ({ space }) => {
           ))
         ])}
         {entries.length === 0 && <li className="decision-empty">Ingen ekonomisk information ännu.</li>}
+      </ul>
+    </div>
+  );
+};
+
+const TaxTab = ({ space }) => {
+  const [checks, setChecks] = React.useState(null);
+  const [meetings, setMeetings] = React.useState([]);
+
+  React.useEffect(() => {
+    window.API.taxes.listForSpace(space.id).then(setChecks);
+    window.API.meetings.listForSpace(space.id).then(setMeetings);
+  }, [space.id]);
+
+  if (checks === null) return null;
+
+  // Gruppera per styrelsemöte, senaste mötet överst (som Ekonomi).
+  const groups = meetings
+    .map((m) => ({ meeting: m, items: checks.filter((c) => c.meetingId === m.id) }))
+    .filter((g) => g.items.length > 0)
+    .sort((x, y) => (y.meeting.date || "").localeCompare(x.meeting.date || ""));
+  const open = checks.filter((c) => c.status !== "betald").length;
+
+  return (
+    <div className="decisions-tab">
+      <div className="meetings-intro">
+        Styrelsen ansvarar för att skatter och avgifter är betalda. Skattekontroll är en valfri punkt
+        på varje styrelsemöte.
+        {checks.length > 0 && ` ${open ? `${open} ej betalda.` : "Allt betalt."}`}
+      </div>
+      <ul className="register-list">
+        {groups.flatMap((g) => [
+          <li key={`m-${g.meeting.id}`} className="register-row register-group">
+            <div className="register-date mono-sub">
+              {g.meeting.date ? window.formatDateTime(g.meeting.date) : ""}
+            </div>
+            <div className="register-node" aria-hidden="true">
+              <span className="register-dot register-dot-meeting" />
+            </div>
+            <div className="register-group-head">
+              <span className="register-group-title">{g.meeting.title}</span>
+            </div>
+          </li>,
+          ...g.items.map((t) => (
+            <li key={t.id} className="register-row" data-status={t.status}>
+              <div className="register-date mono-sub" />
+              <div className="register-node" aria-hidden="true">
+                <span className="register-dot" data-fstatus={t.status} />
+              </div>
+              <div className="register-body action-body">
+                <div className="action-main">
+                  <div className="register-text action-title">{t.title}</div>
+                  <div className="register-meta">
+                    <span className="finance-kind mono-sub">{TAX_KIND_LABEL[t.kind] || t.kind}</span>
+                    {t.period && (
+                      <>
+                        <span className="dot-sep">·</span>
+                        <span className="mono-sub">{t.period}</span>
+                      </>
+                    )}
+                    {t.dueAt && (
+                      <>
+                        <span className="dot-sep">·</span>
+                        <span className="mono-sub">förfaller {window.formatDateTime(t.dueAt).split(" ")[0]}</span>
+                      </>
+                    )}
+                    {t.note && (
+                      <>
+                        <span className="dot-sep">·</span>
+                        <span className="mono-sub">{t.note}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="finance-side">
+                  {t.amount != null && <span className="finance-amount">{formatMoney(t.amount, t.currency)}</span>}
+                  <span className="action-status-tag finance-status" data-fstatus={t.status}>
+                    {TAX_STATUS_LABEL[t.status] || t.status}
+                  </span>
+                </div>
+              </div>
+            </li>
+          ))
+        ])}
+        {checks.length === 0 && <li className="decision-empty">Ingen skattekontroll registrerad ännu.</li>}
       </ul>
     </div>
   );
@@ -1192,6 +1339,7 @@ const RunView = ({ space, tab, onSetTab, onOpenItem, onOpenMail, onGoToDesign })
       {effectiveTab === "beslut" && <DecisionsTab space={space} />}
       {effectiveTab === "uppgifter" && <ActionsTab space={space} />}
       {effectiveTab === "ekonomi" && <FinanceTab space={space} />}
+      {effectiveTab === "skatter" && <TaxTab space={space} />}
       {effectiveTab === "tidslinje" && <AgreementTab space={space} />}
       {effectiveTab === "efterlevnad" && <ComplianceTab space={space} />}
       {effectiveTab === "verifikationer" && <VerificationsTab space={space} roomsById={roomsById} />}

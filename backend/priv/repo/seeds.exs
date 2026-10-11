@@ -22,6 +22,7 @@ alias M4w.Ops.{
   Passage,
   Room,
   Space,
+  TaxCheck,
   User,
   UserSpace,
   Verification
@@ -410,6 +411,27 @@ for {title, kind, amount, note, status, meeting} <- [
     amount: amount,
     note: note,
     status: status
+  })
+end
+
+# Skattekontroll — valfri punkt på styrelsemötet (styrelsen ansvarar för att skatter är betalda).
+for {title, kind, period, amount, due_days, status, note, meeting} <- [
+      {"Moms oktober", "moms", "okt 2025", 612_000, 3, "att_betala", "Förfaller 12 dec",
+       mote_14nov},
+      {"Arbetsgivaravgifter och avdragen skatt", "arbetsgivaravgifter", "okt 2025", 1_480_000, 3,
+       "betald", "Betald via skattekontot", mote_14nov},
+      {"Preliminärskatt Q3", "preliminarskatt", "Q3 2025", 890_000, -40, "betald", nil, mote_3okt}
+    ] do
+  Repo.insert!(%TaxCheck{
+    space_id: styrelse.id,
+    meeting_id: meeting.id,
+    title: title,
+    kind: kind,
+    period: period,
+    amount: amount,
+    due_at: Seed.Helpers.ago(-due_days),
+    status: status,
+    note: note
   })
 end
 

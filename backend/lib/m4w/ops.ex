@@ -32,6 +32,7 @@ defmodule M4w.Ops do
     Room,
     RoomBlueprintSchema,
     Space,
+    TaxCheck,
     User,
     UserSpace,
     Verification
@@ -1163,6 +1164,15 @@ defmodule M4w.Ops do
     |> where([f], f.space_id == ^space_id)
     |> order_by([f], asc: f.id)
     |> preload([:meeting, :artifact])
+    |> Repo.all()
+  end
+
+  # ---------------- Tax checks (skatter) ----------------
+
+  def list_tax_checks(%Space{id: space_id}) do
+    TaxCheck
+    |> where([t], t.space_id == ^space_id)
+    |> order_by([t], asc: t.due_at, asc: t.id)
     |> Repo.all()
   end
 

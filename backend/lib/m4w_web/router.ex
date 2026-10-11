@@ -129,6 +129,7 @@ defmodule M4wWeb.Router do
       patch "/actions/:actionId", ActionController, :update
 
       get "/finance", FinanceController, :index
+      get "/taxes", TaxController, :index
       get "/agreements", AgreementController, :index
 
       get "/compliance", ComplianceController, :index

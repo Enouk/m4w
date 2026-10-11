@@ -189,6 +189,10 @@
     update: (spaceId, actionId, patchBody) => patch(`/spaces/${spaceId}/actions/${actionId}`, patchBody).then(data)
   };
 
+  const taxes = {
+    listForSpace: (spaceId) => get(`/spaces/${spaceId}/taxes`).then(data)
+  };
+
   const finance = {
     listForSpace: (spaceId) => get(`/spaces/${spaceId}/finance`).then(data)
   };
@@ -227,6 +231,7 @@
     decisions,
     actions,
     finance,
+    taxes,
     agreements,
     compliance,
     verifications

@@ -1220,11 +1220,17 @@ a { color: inherit; }
 
 .register-dot[data-fstatus="godkand"] { border-color: var(--green); background: var(--green); }
 .register-dot[data-fstatus="avslagen"] { border-color: var(--text-3); }
+.register-dot[data-fstatus="betald"] { border-color: var(--green); background: var(--green); }
+.register-dot[data-fstatus="att_betala"] { border-color: var(--amber); }
+.register-dot[data-fstatus="forsenad"] { border-color: var(--red, #c0392b); background: var(--red, #c0392b); }
 .register-dot[data-fstatus="att_godkanna"] { border-color: var(--amber); }
 .finance-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
 .finance-amount { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .finance-amount[data-kind="intakt"] { color: var(--green); }
 .finance-status[data-fstatus="att_godkanna"] { color: var(--amber); background: var(--amber-tint); }
+.finance-status[data-fstatus="betald"] { color: var(--green); background: var(--green-tint); }
+.finance-status[data-fstatus="att_betala"] { color: var(--amber); background: var(--amber-tint); }
+.finance-status[data-fstatus="forsenad"] { color: var(--red, #c0392b); background: var(--red-tint, rgba(192, 57, 43, 0.12)); }
 .finance-status[data-fstatus="godkand"] { color: var(--green); background: var(--green-tint); }
 .register-row[data-status="avslagen"] .action-title { color: var(--text-3); text-decoration: line-through; }
 
